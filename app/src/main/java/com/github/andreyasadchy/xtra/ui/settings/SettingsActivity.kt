@@ -129,6 +129,14 @@ class SettingsActivity : AppCompatActivity() {
             true
         })
         binding.toolbar.setupWithNavController(navController, appBarConfiguration)
+        if (savedInstanceState == null) {
+            intent.getIntExtra(EXTRA_DESTINATION, 0).takeIf { it != 0 }?.let { destination ->
+                try {
+                    navController.navigate(destination)
+                } catch (e: Exception) {
+                }
+            }
+        }
         binding.toolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
                 R.id.search -> {
@@ -262,6 +270,7 @@ class SettingsActivity : AppCompatActivity() {
 
     companion object {
         const val KEY_CHANGED = "changed"
+        const val EXTRA_DESTINATION = "destination"
     }
 
     class SettingsFragment : MaterialPreferenceFragment() {

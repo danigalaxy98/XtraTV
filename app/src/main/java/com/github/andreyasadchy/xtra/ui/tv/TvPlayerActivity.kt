@@ -23,7 +23,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -186,6 +190,7 @@ class TvPlayerActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         applyTheme()
         super.onCreate(savedInstanceState)
+        TvCrashLog.install(this)
         binding = ActivityTvPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -589,7 +594,7 @@ class TvPlayerActivity : AppCompatActivity() {
                     }
                 }
                 if (qualityMenuVisible) {
-                    QualityMenu(Modifier.align(Alignment.CenterEnd))
+                    QualityPanel(Modifier.align(Alignment.CenterEnd))
                 }
             }
         }
@@ -619,51 +624,57 @@ class TvPlayerActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Fixed-width side panel listing the available qualities; the current one gets the focus when it opens.
+     */
     @Composable
-    private fun QualityMenu(modifier: Modifier) {
-        val first = remember { FocusRequester() }
+    private fun QualityPanel(modifier: Modifier) {
+        val options = qualities
+        val currentIndex = options.indexOfFirst { it.name == currentQuality?.name }.coerceAtLeast(0)
+        val focusTarget = remember { FocusRequester() }
         LaunchedEffect(Unit) {
-            delay(50.milliseconds)
-            try {
-                first.requestFocus()
-            } catch (e: IllegalStateException) {
-            }
+            withFrameNanos { }
+            runCatching { focusTarget.requestFocus() }
         }
-        Surface(
+        Column(
             modifier = modifier
-                .padding(end = 48.dp)
-                .widthIn(min = 260.dp)
-                .clip(RoundedCornerShape(16.dp)),
+                .fillMaxHeight()
+                .width(360.dp)
+                .background(Color(0xF2151518))
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 32.dp),
         ) {
-            LazyColumn(modifier = Modifier.padding(12.dp)) {
-                item {
-                    Text(
-                        text = stringResource(R.string.quality),
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(12.dp),
-                    )
-                }
-                items(qualities) { quality ->
-                    val isCurrent = quality.name == currentQuality?.name
-                    PillButton(
-                        text = qualityName(quality),
-                        selected = isCurrent,
-                        icon = if (isCurrent) R.drawable.baseline_circle_24 else null,
-                        onClick = {
-                            service?.changeQuality(quality)
-                            currentQuality = quality
-                            qualityMenuVisible = false
-                            showOverlay()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .then(if (quality == qualities.first()) Modifier.focusRequester(first) else Modifier),
-                    )
-                }
+            Text(
+                text = stringResource(R.string.quality),
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 16.dp),
+            )
+            options.forEachIndexed { index, quality ->
+                val isCurrent = quality.name == currentQuality?.name
+                PillButton(
+                    text = qualityName(quality),
+                    selected = isCurrent,
+                    onClick = { selectQuality(quality) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .then(if (index == currentIndex) Modifier.focusRequester(focusTarget) else Modifier),
+                )
             }
         }
+    }
+
+    private fun selectQuality(quality: VideoQuality) {
+        qualityMenuVisible = false
+        try {
+            service?.changeQuality(quality)
+            currentQuality = quality
+        } catch (e: Exception) {
+            Toast.makeText(this, getString(R.string.error, e.message ?: e.toString()), Toast.LENGTH_LONG).show()
+        }
+        showOverlay()
     }
 
     @Composable

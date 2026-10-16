@@ -45,6 +45,26 @@ Un menú lateral que se despliega al recibir el foco: **Siguiendo · Populares �
 - `AndroidManifest.xml`: `TvActivity` con `LEANBACK_LAUNCHER`; `MainActivity` ya no aparece en el lanzador de la TV.
 - Textos nuevos `tv_*` en `values` y `values-es`.
 
+### Ajustes TV (`TvSettingsActivity`)
+- Diseño de ajustes de Android TV:
+  - **Secciones a la izquierda** (General, Tema, Interfaz, Chat, Reproductor, Botones del reproductor, Buffer, Reproducción, Proxys, Cuenta y tokens, Descargas, Actualizaciones, Avanzado).
+  - **Opciones a la derecha**.
+  - **Paneles laterales** para listas y textos.
+- Se genera a partir de los mismos XML de ajustes del móvil (`res/xml/*_preferences.xml`), así que no falta ninguna opción. Guarda en las mismas preferencias.
+- Interruptores con OK, deslizadores con ← / →, textos numéricos con teclado numérico. Los tokens se guardan en `tokenPrefs` y se muestran ocultos.
+- Se han portado los comportamientos especiales:
+  - Idioma.
+  - Notificaciones de directos.
+  - Librería de red.
+  - Opciones ocultas según el dispositivo.
+  - Ancho del chat.
+  - Permisos de administrador o de instalación.
+  - Borrar posiciones y búsquedas recientes, importar descargas.
+- Los editores complejos (proxys, orden de pestañas, idiomas de traducción, copia de seguridad, comprobar actualizaciones, token de integridad) abren la pantalla clásica en la sección correcta, mediante el extra `SettingsActivity.EXTRA_DESTINATION`.
+
+### Registro de errores (`TvCrashLog`)
+Si la app se cierra por un error, al volver a abrirla se muestra el error en pantalla para poder fotografiarlo.
+
 ### Limitaciones de esta versión
 - Sin chat en VODs.
 - No se puede escribir en el chat desde la TV.

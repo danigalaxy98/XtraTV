@@ -70,6 +70,11 @@
             android:exported="false"
             android:screenOrientation="landscape"
             tools:ignore="DiscouragedApi" />
+        <activity
+            android:name=".ui.tv.TvSettingsActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:exported="false"
+            android:windowSoftInputMode="adjustPan" />
         <activity android:name=".ui.settings.SettingsActivity" />
         <activity
             android:name=".ui.login.LoginActivity"

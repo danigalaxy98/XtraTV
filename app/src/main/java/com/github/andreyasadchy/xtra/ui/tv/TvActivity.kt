@@ -32,8 +32,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -79,8 +86,12 @@ class TvActivity : ComponentActivity() {
         recreate()
     }
 
+    private var crashText by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        TvCrashLog.install(this)
+        crashText = TvCrashLog.read(this)
         loggedIn = viewModel.isLoggedIn()
         if (backStack.isEmpty()) {
             backStack.add(if (loggedIn) TvDestination.Following else TvDestination.Popular)
@@ -186,6 +197,67 @@ class TvActivity : ComponentActivity() {
                 }
             }
         }
+        crashText?.let { text ->
+            CrashPanel(text) {
+                TvCrashLog.clear(this@TvActivity)
+                crashText = null
+            }
+        }
+    }
+
+    @Composable
+    private fun CrashPanel(text: String, onDismiss: () -> Unit) {
+        val button = remember { FocusRequester() }
+        BackHandler(onBack = onDismiss)
+        LaunchedEffect(Unit) {
+            withFrameNanos { }
+            runCatching { button.requestFocus() }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xE6000000)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(TvColors.Surface)
+                    .padding(32.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.tv_crash_title),
+                    color = TvColors.Text,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.tv_crash_message),
+                    color = TvColors.TextSecondary,
+                    fontSize = 16.sp,
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = text,
+                    color = TvColors.Text,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .background(TvColors.Background)
+                        .padding(12.dp),
+                )
+                Spacer(Modifier.height(16.dp))
+                PillButton(
+                    text = stringResource(R.string.tv_crash_dismiss),
+                    onClick = onDismiss,
+                    modifier = Modifier.focusRequester(button),
+                )
+            }
+        }
     }
 
     @Composable
@@ -230,7 +302,7 @@ class TvActivity : ComponentActivity() {
                 }
             }
             RailItem(R.drawable.baseline_settings_black_24, R.string.settings, expanded, false) {
-                accountResultLauncher.launch(Intent(this@TvActivity, SettingsActivity::class.java))
+                accountResultLauncher.launch(Intent(this@TvActivity, TvSettingsActivity::class.java))
             }
         }
     }

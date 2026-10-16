@@ -597,4 +597,14 @@
     <string name="tv_live_now">En directo ahora</string>
     <string name="tv_no_videos">Este canal no tiene vídeos</string>
     <string name="tv_channel">Canal</string>
+    <string name="tv_settings_general">General</string>
+    <string name="tv_settings_proxies">Proxys</string>
+    <string name="tv_save">Guardar</string>
+    <string name="tv_done">Hecho</string>
+    <string name="tv_not_set">Sin definir</string>
+    <string name="tv_not_available">No disponible en este dispositivo</string>
+    <string name="tv_opens_classic">Se abre en la pantalla de ajustes clásica</string>
+    <string name="tv_crash_title">La app se cerró por un error</string>
+    <string name="tv_crash_message">Haz una foto de esta pantalla para informar del problema.</string>
+    <string name="tv_crash_dismiss">Entendido</string>
 </resources>
