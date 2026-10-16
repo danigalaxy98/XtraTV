@@ -174,7 +174,8 @@ fun <T : Any> PagedGrid(
     }
     LaunchedEffect(refreshKey) {
         val last = state.lastUpdated[refreshKey]
-        if (last != null && System.currentTimeMillis() - last > TvBrowseViewModel.STALE_MS) {
+        val stale = state.staleMs()
+        if (last != null && stale > 0 && System.currentTimeMillis() - last > stale) {
             pagingItems.refresh()
         }
     }

@@ -62,6 +62,20 @@ Un menú lateral que se despliega al recibir el foco: **Siguiendo · Populares �
   - Borrar posiciones y búsquedas recientes, importar descargas.
 - Los editores complejos (proxys, orden de pestañas, idiomas de traducción, copia de seguridad, comprobar actualizaciones, token de integridad) abren la pantalla clásica en la sección correcta, mediante el extra `SettingsActivity.EXTRA_DESTINATION`.
 
+#### Reorganización (solo ajustes útiles en TV)
+- Secciones: General · Cuenta · Reproductor · Chat · Anuncios y proxys · Actualizaciones · Avanzado. La lista de opciones de cada sección está en `TvSettingsModel.sections()`.
+- Ajustes nuevos de TV (`res/xml/tv_preferences.xml`, `TvPrefs.kt`):
+  - Pantalla de inicio.
+  - Tarjetas por fila.
+  - Actualización automática (desactivada / 1 / 2 / 5 min).
+  - Tiempo para ocultar los controles.
+  - Mostrar el chat al abrir un directo.
+  - Ancho del chat (15–50 %).
+  - Cuenta (iniciar o cerrar sesión).
+- El cambio automático de canal en raids funciona en TV (`ChatFragment` → `TvPlayerActivity.switchToStream`).
+- Las actualizaciones apuntan al fork `danigalaxy98/XtraTV` (`TvPrefs.ensureForkUpdateUrl`).
+- "Todos los ajustes (pantalla clásica)" sigue disponible en Avanzado.
+
 ### Registro de errores (`TvCrashLog`)
 Si la app se cierra por un error, al volver a abrirla se muestra el error en pantalla para poder fotografiarlo.
 

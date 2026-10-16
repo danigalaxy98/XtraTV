@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.ext.SdkExtensions
+import androidx.annotation.StringRes
 import androidx.annotation.XmlRes
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.preference.EditTextPreference
@@ -13,6 +14,7 @@ import androidx.preference.Preference
 import androidx.preference.PreferenceGroup
 import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
+import androidx.preference.SeekBarPreference
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -20,50 +22,27 @@ import com.google.mlkit.nl.translate.TranslateLanguage
 import org.chromium.net.CronetProvider
 import java.util.Locale
 
-/**
- * A section of the TV settings: either a whole preference XML, or a subset of the root screen.
- */
+/** One row of a TV settings section: a preference taken from one of the preference XML files, or a group header. */
+sealed interface TvSettingsEntry {
+    class Pref(@XmlRes val xml: Int, val key: String) : TvSettingsEntry
+    class Header(@StringRes val title: Int) : TvSettingsEntry
+}
+
 class TvSettingsSection(
     val id: String,
     val title: CharSequence,
-    @XmlRes val xml: Int,
-    /** When set, only these keys of [xml] are shown, in this order. */
-    val keys: List<String>? = null,
-    /** Keys of [xml] that are never shown in this section. */
-    val excludedKeys: Set<String> = emptySet(),
+    val entries: List<TvSettingsEntry>,
 )
 
 /**
- * Builds the TV settings from the same preference XML files used by the phone settings
- * and applies the same special cases that the phone settings fragments apply in code.
+ * Builds the TV settings from the same preference XML files used by the phone settings, keeping only the options
+ * that affect the TV interface, and applies the same special cases that the phone settings fragments apply in code.
  */
 object TvSettingsModel {
-
-    /** Root navigation entries and the XML they open. */
-    private val navigationXml = linkedMapOf(
-        "theme_settings" to R.xml.theme_preferences,
-        "ui_settings" to R.xml.ui_preferences,
-        "chat_settings" to R.xml.chat_preferences,
-        "player_settings" to R.xml.player_preferences,
-        "player_button_settings" to R.xml.player_button_preferences,
-        "buffer_settings" to R.xml.buffer_preferences,
-        "playback_settings" to R.xml.playback_preferences,
-        "api_token_settings" to R.xml.api_token_preferences,
-        "download_settings" to R.xml.download_preferences,
-        "update_settings" to R.xml.update_preferences,
-        "debug_settings" to R.xml.debug_preferences,
-    )
 
     /** Plain preferences inside a section that open another XML as a sub-page. */
     val subPageXml = mapOf(
         "player_menu_settings" to R.xml.player_menu_preferences,
-    )
-
-    private val proxyKeys = listOf(
-        C.PLAYER_USE_CUSTOM_PROXY,
-        "custom_proxy_settings",
-        C.PLAYER_USE_STREAM_PROXY,
-        "stream_proxy_settings",
     )
 
     /** Preferences that keep their value in the token preferences instead of the default ones. */
@@ -92,44 +71,98 @@ object TvSettingsModel {
         "custom_proxy_settings" to R.id.action_global_customProxySettingsFragment,
         "stream_proxy_settings" to R.id.action_global_streamProxySettingsFragment,
         "video_swap_settings" to R.id.action_global_videoSwapSettingsFragment,
-        "ui_navigation_tab_list_dialog" to R.id.action_global_uiSettingsFragment,
-        "ui_following_tabs_dialog" to R.id.action_global_uiSettingsFragment,
-        "ui_saved_tabs_dialog" to R.id.action_global_uiSettingsFragment,
-        "ui_channel_tabs_dialog" to R.id.action_global_uiSettingsFragment,
-        "ui_game_tabs_dialog" to R.id.action_global_uiSettingsFragment,
-        "ui_search_tabs_dialog" to R.id.action_global_uiSettingsFragment,
-        "downloaded_languages" to R.id.action_global_chatSettingsFragment,
         "get_integrity_token" to R.id.action_global_debugSettingsFragment,
         "check_updates" to 0,
-        "backup_settings" to 0,
-        "restore_settings" to 0,
+        TvPrefs.CLASSIC_SETTINGS to 0,
     )
 
     fun sections(context: Context): List<TvSettingsSection> {
-        val root = inflate(context, R.xml.root_preferences)
-        val titles = navigationXml.keys.associateWith { key ->
-            root.findPreference<Preference>(key)?.title ?: key
-        }
-        val general = TvSettingsSection(
-            id = "general",
-            title = context.getString(R.string.tv_settings_general),
-            xml = R.xml.root_preferences,
-            excludedKeys = navigationXml.keys + proxyKeys,
+        val root = R.xml.root_preferences
+        val tv = R.xml.tv_preferences
+        val chat = R.xml.chat_preferences
+        val player = R.xml.player_preferences
+        val playback = R.xml.playback_preferences
+        val debug = R.xml.debug_preferences
+        val api = R.xml.api_token_preferences
+        fun prefs(xml: Int, vararg keys: String) = keys.map { TvSettingsEntry.Pref(xml, it) }
+        fun header(title: Int) = TvSettingsEntry.Header(title)
+        return listOf(
+            TvSettingsSection(
+                "general", context.getString(R.string.tv_settings_general),
+                prefs(root, C.UI_LANGUAGE) +
+                        prefs(tv, TvPrefs.START_SCREEN, TvPrefs.COLUMNS, TvPrefs.AUTO_REFRESH),
+            ),
+            TvSettingsSection(
+                "account", context.getString(R.string.tv_section_account),
+                prefs(tv, TvPrefs.ACCOUNT) + prefs(R.xml.ui_preferences, C.UI_FOLLOW_BUTTON),
+            ),
+            TvSettingsSection(
+                "player", context.getString(R.string.tv_section_player),
+                prefs(player, C.PLAYER_DEFAULT_QUALITY) +
+                        prefs(tv, TvPrefs.OVERLAY_TIMEOUT) +
+                        prefs(R.xml.player_button_preferences, C.PLAYER_REWIND, C.PLAYER_FORWARD) +
+                        prefs(player, "player_use_videopositions", "delete_video_positions", "player_audio_focus", "player_handle_audio_becoming_noisy"),
+            ),
+            TvSettingsSection(
+                "chat", context.getString(R.string.tv_section_chat),
+                prefs(chat, C.CHAT_DISABLE) +
+                        prefs(tv, C.KEY_CHAT_OPENED) +
+                        prefs(chat, "chatWidth") +
+                        header(R.string.tv_header_appearance) +
+                        prefs(
+                            chat, "chat_size_modifier", "chat_text_size", "chat_emote_size", "chat_badge_size", "chat_boldnames",
+                            "chat_randomcolor", "chat_theme_adapted_username_color", "chat_timestamps", "chat_timestamp_format",
+                        ) +
+                        header(R.string.tv_header_content) +
+                        prefs(
+                            chat, "chat_limit", "chat_recent", "chat_recent_limit", "chat_show_usernotice", "chat_show_clearmsg",
+                            "chat_show_clearchat", "chat_firstmsg_visibility", "chat_raids_show", "chat_raids_auto_switch",
+                            "chat_polls_show", "chat_predictions_show", "chat_points_collect",
+                        ) +
+                        header(R.string.tv_header_emotes) +
+                        prefs(
+                            chat, "animatedGifEmotes", "chat_zerowidth", "chat_show_gif_messages", "chat_gif_size",
+                            "chat_system_message_emotes", "chat_enable_stv", "chat_enable_bttv", "chat_enable_ffz",
+                            "chat_show_paints", "chat_show_stv_badges", "chat_show_personal_emotes",
+                        ),
+            ),
+            TvSettingsSection(
+                "ads", context.getString(R.string.tv_section_ads),
+                prefs(root, C.PLAYER_USE_CUSTOM_PROXY, "custom_proxy_settings", C.PLAYER_USE_STREAM_PROXY, "stream_proxy_settings") +
+                        prefs(
+                            playback, "proxy_timeout", "player_hide_ads", "player_use_video_swap", "video_swap_settings",
+                            "token_include_token_stream", "token_include_token_video", "token_supported_codecs",
+                        ),
+            ),
+            TvSettingsSection(
+                "updates", context.getString(R.string.tv_section_updates),
+                prefs(root, "check_updates") + prefs(R.xml.update_preferences, C.UPDATE_URL),
+            ),
+            TvSettingsSection(
+                "advanced", context.getString(R.string.tv_section_advanced),
+                listOf(header(R.string.tv_header_network)) +
+                        prefs(root, C.NETWORK_LIBRARY) +
+                        header(R.string.tv_header_buffer) +
+                        prefs(
+                            R.xml.buffer_preferences, "player_buffer_min", "player_buffer_max", "player_buffer_playback",
+                            "player_buffer_rebuffer", "player_live_min_speed", "player_live_max_speed", "player_live_target_offset",
+                        ) +
+                        header(R.string.tv_header_chat_connection) +
+                        prefs(
+                            chat, C.CHAT_IMAGE_LIBRARY, "chat_use_webp", "chat_image_quality", "chat_recent_messages_url",
+                            "chat_use_websocket", "chat_use_ssl", "chat_pubsub_enabled",
+                        ) +
+                        prefs(debug, "debug_eventsub_chat") +
+                        prefs(chat, "chat_stv_live_updates") +
+                        header(R.string.tv_header_api) +
+                        prefs(
+                            api, "api_login", "helix_client_id", "helix_redirect", "gql_client_id2", "user_id", "username",
+                            "token", "gql_token2", "gql_token_web", "validate_tokens",
+                        ) +
+                        prefs(debug, "enable_integrity", "use_webview_integrity", "get_all_gql_headers", "gql_headers", "get_integrity_token") +
+                        prefs(tv, TvPrefs.CLASSIC_SETTINGS),
+            ),
         )
-        val proxies = TvSettingsSection(
-            id = "proxies",
-            title = context.getString(R.string.tv_settings_proxies),
-            xml = R.xml.root_preferences,
-            keys = proxyKeys,
-        )
-        val sections = mutableListOf(general)
-        navigationXml.forEach { (key, xml) ->
-            sections.add(TvSettingsSection(key, titles[key] ?: key, xml))
-            if (key == "playback_settings") {
-                sections.add(proxies)
-            }
-        }
-        return sections
     }
 
     /**
@@ -146,18 +179,10 @@ object TvSettingsModel {
         return screen
     }
 
-    /** Visible children of a group, in order, honoring the section filters. */
-    fun children(group: PreferenceGroup, section: TvSettingsSection?, isSectionRoot: Boolean): List<Preference> {
-        val all = (0 until group.preferenceCount).map { group.getPreference(it) }.filter { it.isVisible }
-        if (!isSectionRoot || section == null) return all
-        val keys = section.keys
-        return if (keys != null) {
-            keys.mapNotNull { key -> all.find { it.key == key } }
-        } else {
-            all.filter { it.key !in section.excludedKeys }
-        }
+    /** Visible children of a sub-page group, in order. */
+    fun children(group: PreferenceGroup): List<Preference> {
+        return (0 until group.preferenceCount).map { group.getPreference(it) }.filter { it.isVisible }
     }
-
     private fun applyRules(context: Context, screen: PreferenceScreen) {
         val hasPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                 context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
@@ -223,6 +248,11 @@ object TvSettingsModel {
             if (findIndexOfValue(tag) >= 0) {
                 value = tag
             }
+        }
+        screen.findPreference<SeekBarPreference>("chatWidth")?.apply {
+            title = context.getString(R.string.tv_pref_chat_width)
+            min = 15
+            max = 50
         }
         tokenKeys.forEach { (key, tokenKey) ->
             screen.findPreference<EditTextPreference>(key)?.apply {

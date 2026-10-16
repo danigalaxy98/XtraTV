@@ -57,8 +57,10 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 
-private const val STREAM_COLUMNS = 4
-private const val GAME_COLUMNS = 6
+private val STREAM_COLUMNS: Int
+    @Composable get() = TvPrefs.streamColumns(LocalContext.current)
+private val GAME_COLUMNS: Int
+    @Composable get() = STREAM_COLUMNS + 2
 
 @Composable
 private fun StreamGridItem(stream: Stream, actions: TvActions) {

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <ListPreference
+        android:defaultValue="auto"
+        android:entries="@array/tvStartScreenEntries"
+        android:entryValues="@array/tvStartScreenValues"
+        android:key="tv_start_screen"
+        android:title="@string/tv_pref_start_screen"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="4"
+        android:entries="@array/tvColumnsEntries"
+        android:entryValues="@array/tvColumnsValues"
+        android:key="tv_columns"
+        android:title="@string/tv_pref_columns"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="2"
+        android:entries="@array/tvAutoRefreshEntries"
+        android:entryValues="@array/tvAutoRefreshValues"
+        android:key="tv_auto_refresh"
+        android:title="@string/tv_pref_auto_refresh"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
+        android:defaultValue="5"
+        android:entries="@array/tvOverlayTimeoutEntries"
+        android:entryValues="@array/tvOverlayTimeoutValues"
+        android:key="tv_overlay_timeout"
+        android:title="@string/tv_pref_overlay_timeout"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="true"
+        android:key="key_chat_opened"
+        android:title="@string/tv_pref_chat_opened"
+        app:iconSpaceReserved="false" />
+
+    <Preference
+        android:key="tv_account"
+        android:title="@string/tv_pref_account"
+        app:iconSpaceReserved="false" />
+
+    <Preference
+        android:key="tv_classic_settings"
+        android:summary="@string/tv_pref_classic_settings_summary"
+        android:title="@string/tv_pref_classic_settings"
+        app:iconSpaceReserved="false" />
+
+</androidx.preference.PreferenceScreen>

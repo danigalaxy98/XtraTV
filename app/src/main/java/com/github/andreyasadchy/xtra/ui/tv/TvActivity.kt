@@ -56,7 +56,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.login.LoginActivity
-import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.seconds
@@ -93,8 +93,16 @@ class TvActivity : ComponentActivity() {
         TvCrashLog.install(this)
         crashText = TvCrashLog.read(this)
         loggedIn = viewModel.isLoggedIn()
+        TvPrefs.ensureForkUpdateUrl(this)
         if (backStack.isEmpty()) {
-            backStack.add(if (loggedIn) TvDestination.Following else TvDestination.Popular)
+            backStack.add(
+                when (prefs().getString(TvPrefs.START_SCREEN, TvPrefs.START_AUTO)) {
+                    TvPrefs.START_FOLLOWING -> TvDestination.Following
+                    TvPrefs.START_POPULAR -> TvDestination.Popular
+                    TvPrefs.START_CATEGORIES -> TvDestination.Categories
+                    else -> if (loggedIn) TvDestination.Following else TvDestination.Popular
+                }
+            )
         }
         handleIntent(intent)
         setContent {
@@ -108,7 +116,8 @@ class TvActivity : ComponentActivity() {
                 while (true) {
                     delay(15.seconds)
                     val now = System.currentTimeMillis()
-                    if (now - lastKeyTime > TvBrowseViewModel.STALE_MS && now - lastAutoRefresh > TvBrowseViewModel.STALE_MS) {
+                    val interval = TvPrefs.autoRefreshMs(this@TvActivity)
+                    if (interval > 0 && now - lastKeyTime > interval && now - lastAutoRefresh > interval) {
                         lastAutoRefresh = now
                         viewModel.requestRefresh()
                     }
@@ -120,8 +129,10 @@ class TvActivity : ComponentActivity() {
     override fun onRestart() {
         super.onRestart()
         // back from the player or from the background
-        lastAutoRefresh = System.currentTimeMillis()
-        viewModel.requestRefresh()
+        if (TvPrefs.autoRefreshMs(this) > 0) {
+            lastAutoRefresh = System.currentTimeMillis()
+            viewModel.requestRefresh()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

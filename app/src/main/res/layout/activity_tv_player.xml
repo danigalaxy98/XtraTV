@@ -1,40 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/black"
-    android:orientation="horizontal">
+    android:background="@android:color/black">
 
-    <FrameLayout
-        android:layout_width="0dp"
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_weight="1">
+        android:orientation="horizontal">
 
-        <androidx.media3.ui.AspectRatioFrameLayout
-            android:id="@+id/aspectRatioLayout"
-            android:layout_width="match_parent"
+        <FrameLayout
+            android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_gravity="center">
+            android:layout_weight="1">
 
-            <SurfaceView
-                android:id="@+id/playerSurface"
+            <androidx.media3.ui.AspectRatioFrameLayout
+                android:id="@+id/aspectRatioLayout"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent" />
+                android:layout_height="match_parent"
+                android:layout_gravity="center">
 
-        </androidx.media3.ui.AspectRatioFrameLayout>
+                <SurfaceView
+                    android:id="@+id/playerSurface"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
 
-        <androidx.compose.ui.platform.ComposeView
-            android:id="@+id/overlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+            </androidx.media3.ui.AspectRatioFrameLayout>
 
-    </FrameLayout>
+        </FrameLayout>
 
-    <androidx.fragment.app.FragmentContainerView
-        android:id="@+id/chatContainer"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:descendantFocusability="blocksDescendants"
-        android:visibility="gone" />
+        <androidx.fragment.app.FragmentContainerView
+            android:id="@+id/chatContainer"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:descendantFocusability="blocksDescendants"
+            android:visibility="gone" />
 
-</LinearLayout>
+    </LinearLayout>
+
+    <!-- Overlay covers the whole screen (outside the weighted layout) so Compose always gets bounded constraints;
+         its content leaves room for the chat panel itself. -->
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+</FrameLayout>

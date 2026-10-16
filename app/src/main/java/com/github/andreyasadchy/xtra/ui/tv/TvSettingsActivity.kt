@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -81,6 +82,7 @@ import androidx.preference.TwoStatePreference
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel
 import com.github.andreyasadchy.xtra.util.C
@@ -102,7 +104,7 @@ class TvSettingsActivity : AppCompatActivity() {
 
     private val settingsViewModel: SettingsViewModel by viewModels { SettingsViewModel.SettingsViewModelFactory }
     private lateinit var sections: List<TvSettingsSection>
-    private val screens = mutableMapOf<String, PreferenceScreen>()
+    private val screens = mutableMapOf<Int, PreferenceScreen>()
 
     private var selectedSection by mutableIntStateOf(0)
     private val pageStack = mutableStateListOf<PreferenceGroup>()
@@ -110,6 +112,10 @@ class TvSettingsActivity : AppCompatActivity() {
     private var panelOwnerKey: String? = null
     private var version by mutableIntStateOf(0)
     private var focusContentOnNextPage = false
+
+    private val loginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        markChanged()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -122,8 +128,8 @@ class TvSettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun screenFor(section: TvSettingsSection): PreferenceScreen {
-        return screens.getOrPut(section.id) { TvSettingsModel.inflate(this, section.xml) }
+    private fun screenFor(xml: Int): PreferenceScreen {
+        return screens.getOrPut(xml) { TvSettingsModel.inflate(this, xml) }
     }
 
     private fun markChanged() {
@@ -208,6 +214,17 @@ class TvSettingsActivity : AppCompatActivity() {
         if (!preference.isEnabled) return
         val key = preference.key
         when {
+            key == TvPrefs.ACCOUNT -> {
+                if (TvPrefs.isLoggedIn(this)) {
+                    val name = tokenPrefs().getString(C.USERNAME, null) ?: ""
+                    openPanel(key, Panel.Confirm(getString(R.string.tv_logout_confirm, name)) {
+                        TvPrefs.logout(this)
+                        markChanged()
+                    })
+                } else {
+                    loginLauncher.launch(Intent(this, LoginActivity::class.java))
+                }
+            }
             preference is TwoStatePreference -> setSwitch(preference, !preference.isChecked)
             preference is ListPreference -> openPanel(key, Panel.Choice(preference))
             preference is EditTextPreference -> openPanel(key, Panel.Input(preference))
@@ -273,14 +290,27 @@ class TvSettingsActivity : AppCompatActivity() {
 
     // region UI
 
-    /** Rows of a page: categories are shown as headers followed by their own options. */
-    private fun rows(group: PreferenceGroup, section: TvSettingsSection, isSectionRoot: Boolean): List<Preference> {
-        return TvSettingsModel.children(group, section, isSectionRoot).flatMap { preference ->
-            if (preference is PreferenceCategory) {
-                listOf(preference) + TvSettingsModel.children(preference, null, false)
-            } else {
-                listOf(preference)
+    /** Rows of the section (or of the open sub-page): visible preferences, and group headers as plain strings. */
+    private fun rows(section: TvSettingsSection, subPage: PreferenceGroup?): List<Any> {
+        if (subPage != null) {
+            return TvSettingsModel.children(subPage).flatMap { preference ->
+                if (preference is PreferenceCategory) {
+                    listOf<Any>(preference.title?.toString().orEmpty()) + TvSettingsModel.children(preference)
+                } else {
+                    listOf(preference)
+                }
             }
+        }
+        val result = mutableListOf<Any>()
+        section.entries.forEach { entry ->
+            when (entry) {
+                is TvSettingsEntry.Header -> result.add(getString(entry.title))
+                is TvSettingsEntry.Pref -> screenFor(entry.xml).findPreference<Preference>(entry.key)?.takeIf { it.isVisible }?.let { result.add(it) }
+            }
+        }
+        // drop headers that ended up without any option below them
+        return result.filterIndexed { index, item ->
+            item !is String || result.getOrNull(index + 1).let { it != null && it !is String }
         }
     }
 
@@ -392,12 +422,12 @@ class TvSettingsActivity : AppCompatActivity() {
     @Composable
     private fun SectionContent() {
         val section = sections[selectedSection]
-        val screen = remember(section.id) { screenFor(section) }
-        val group: PreferenceGroup = pageStack.lastOrNull() ?: screen
+        val subPage = pageStack.lastOrNull()
+        val group: Any = subPage ?: section.id
         val currentVersion = version
-        val rows = remember(group, currentVersion, section.id) { rows(group, section, pageStack.isEmpty()) }
+        val rows = remember(group, currentVersion) { rows(section, subPage) }
         val firstRowFocus = remember(group) { FocusRequester() }
-        val firstFocusable = rows.indexOfFirst { it !is PreferenceCategory }
+        val firstFocusable = rows.indexOfFirst { it is Preference }
         LaunchedEffect(group, currentVersion) {
             if (focusContentOnNextPage) {
                 focusContentOnNextPage = false
@@ -420,10 +450,11 @@ class TvSettingsActivity : AppCompatActivity() {
                 contentPadding = PaddingValues(bottom = 48.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
-                itemsIndexed(rows, key = { index, preference -> "$index:${preference.key}" }) { index, preference ->
-                    if (preference is PreferenceCategory) {
+                itemsIndexed(rows, key = { index, row -> "$index:${(row as? Preference)?.key ?: row}" }) { index, row ->
+                    val preference = row as? Preference
+                    if (preference == null) {
                         Text(
-                            text = preference.title?.toString().orEmpty(),
+                            text = row.toString(),
                             color = TvColors.Accent,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -536,6 +567,14 @@ class TvSettingsActivity : AppCompatActivity() {
     private fun summaryOf(preference: Preference, @Suppress("UNUSED_PARAMETER") version: Int): String? {
         val key = preference.key
         return when {
+            key == TvPrefs.ACCOUNT -> {
+                val name = tokenPrefs().getString(C.USERNAME, null)
+                if (TvPrefs.isLoggedIn(this)) {
+                    getString(R.string.tv_account_logged_in, name ?: "?")
+                } else {
+                    getString(R.string.tv_account_logged_out)
+                }
+            }
             key == C.PLAYER_REWIND || key == C.PLAYER_FORWARD -> {
                 getString(R.string.seconds_full, (preference as? EditTextPreference)?.text ?: "10")
             }

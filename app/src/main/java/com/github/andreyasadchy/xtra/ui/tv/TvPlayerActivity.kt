@@ -130,6 +130,8 @@ class TvPlayerActivity : AppCompatActivity() {
     private var position by mutableLongStateOf(0L)
     private var duration by mutableLongStateOf(0L)
     private var progress by mutableFloatStateOf(0f)
+    private var chatWidthDp = 0f
+    private var overlayTimeoutSeconds = 5L
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -207,8 +209,12 @@ class TvPlayerActivity : AppCompatActivity() {
         viewerCount = stream?.viewerCount
         startedAt = stream?.createdAt?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() }
 
+        val chatPercent = prefs().getInt("chatWidth", 30).coerceIn(15, 50)
+        val chatWidthPx = (resources.displayMetrics.widthPixels * chatPercent / 100f).toInt()
+        chatWidthDp = chatWidthPx / resources.displayMetrics.density
+        overlayTimeoutSeconds = prefs().getString(TvPrefs.OVERLAY_TIMEOUT, "5")?.toLongOrNull() ?: 5L
         binding.chatContainer.updateLayoutParams {
-            width = (resources.displayMetrics.widthPixels * 0.3f).toInt()
+            width = chatWidthPx
         }
         chatAvailable = isStream && !prefs().getBoolean(C.CHAT_DISABLE, false)
         chatVisible = chatAvailable && prefs().getBoolean(C.KEY_CHAT_OPENED, true)
@@ -467,7 +473,7 @@ class TvPlayerActivity : AppCompatActivity() {
         val firstButton = remember { FocusRequester() }
         LaunchedEffect(overlayVisible, lastInteraction, qualityMenuVisible) {
             if (overlayVisible && !qualityMenuVisible) {
-                delay(5.seconds)
+                delay(overlayTimeoutSeconds.seconds)
                 overlayVisible = false
             }
         }
@@ -490,7 +496,7 @@ class TvPlayerActivity : AppCompatActivity() {
             }
         }
         AnimatedVisibility(visible = overlayVisible, enter = fadeIn(), exit = fadeOut()) {
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxSize().padding(end = if (chatVisible) chatWidthDp.dp else 0.dp)) {
                 // top: channel info
                 Row(
                     modifier = Modifier
@@ -641,7 +647,6 @@ class TvPlayerActivity : AppCompatActivity() {
                 .fillMaxHeight()
                 .width(360.dp)
                 .background(Color(0xF2151518))
-                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 32.dp),
         ) {
             Text(
@@ -706,7 +711,14 @@ class TvPlayerActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun closePlayer() {
+    /** Raids: stop this stream first (so the playback service is released) and open the raided channel. */
+    fun switchToStream(stream: Stream) {
+        closePlayer(deleteStates = false)
+        startStream(this, stream)
+        finish()
+    }
+
+    private fun closePlayer(deleteStates: Boolean = true) {
         if (closed) return
         closed = true
         service?.let { service ->
@@ -716,7 +728,9 @@ class TvPlayerActivity : AppCompatActivity() {
             service.secondaryPlayer?.removeListener(playerListener)
             service.serviceListener = null
         }
-        viewModel.deletePlaybackStates()
+        if (deleteStates) {
+            viewModel.deletePlaybackStates()
+        }
         connection?.let {
             try {
                 unbindService(it)

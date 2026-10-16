@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="tvStartScreenEntries">
+        <item>@string/tv_start_auto</item>
+        <item>@string/following</item>
+        <item>@string/popular</item>
+        <item>@string/tv_categories</item>
+    </string-array>
+    <string-array name="tvStartScreenValues" translatable="false">
+        <item>auto</item>
+        <item>following</item>
+        <item>popular</item>
+        <item>categories</item>
+    </string-array>
+
+    <string-array name="tvColumnsEntries" translatable="false">
+        <item>3</item>
+        <item>4</item>
+        <item>5</item>
+    </string-array>
+    <string-array name="tvColumnsValues" translatable="false">
+        <item>3</item>
+        <item>4</item>
+        <item>5</item>
+    </string-array>
+
+    <string-array name="tvAutoRefreshEntries">
+        <item>@string/tv_auto_refresh_off</item>
+        <item>@string/tv_auto_refresh_1</item>
+        <item>@string/tv_auto_refresh_2</item>
+        <item>@string/tv_auto_refresh_5</item>
+    </string-array>
+    <string-array name="tvAutoRefreshValues" translatable="false">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+        <item>5</item>
+    </string-array>
+
+    <string-array name="tvOverlayTimeoutEntries">
+        <item>@string/tv_seconds_3</item>
+        <item>@string/tv_seconds_5</item>
+        <item>@string/tv_seconds_10</item>
+    </string-array>
+    <string-array name="tvOverlayTimeoutValues" translatable="false">
+        <item>3</item>
+        <item>5</item>
+        <item>10</item>
+    </string-array>
+</resources>

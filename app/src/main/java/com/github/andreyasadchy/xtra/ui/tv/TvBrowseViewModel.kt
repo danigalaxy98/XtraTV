@@ -53,6 +53,9 @@ class TvBrowseViewModel(
         refreshTick.value++
     }
 
+    /** Age after which a list reloads when shown again; 0 when automatic refresh is disabled. */
+    fun staleMs(): Long = TvPrefs.autoRefreshMs(applicationContext)
+
     private val pagingConfig = PagingConfig(pageSize = 30, prefetchDistance = 8, initialLoadSize = 30)
 
     private val networkLibrary get() = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
