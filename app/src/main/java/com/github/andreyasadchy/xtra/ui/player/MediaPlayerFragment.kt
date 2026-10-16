@@ -158,7 +158,7 @@ class MediaPlayerFragment : PlayerFragment() {
                                         )
                                     }
                                 )
-                                minimize()
+                                minimizeOrClose()
                             }
                         }
                     }

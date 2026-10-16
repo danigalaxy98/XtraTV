@@ -23,6 +23,7 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.ext.SdkExtensions
 import android.text.format.Formatter
+import android.view.KeyEvent
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
@@ -89,6 +90,7 @@ import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TvUtils
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -153,6 +155,9 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        if (TvUtils.isTv(this)) {
+            TvUtils.installFocusHighlight(this)
+        }
         setNavBarColor(resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
         val ignoreCutouts = prefs.getBoolean(C.UI_DRAW_BEHIND_CUTOUTS, false)
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
@@ -631,6 +636,27 @@ class MainActivity : AppCompatActivity() {
         restorePlayerFragment()
     }
 
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (TvUtils.isTv(this) && (playerFragment as? PlayerFragment)?.handleTvKeyEvent(event) == true) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    /**
+     * On TV, stops D-pad focus from moving to the lists behind the fullscreen player.
+     */
+    fun setContentFocusBlocked(blocked: Boolean) {
+        if (!TvUtils.isTv(this)) return
+        val focusability = if (blocked) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
+        binding.navHostFragment.descendantFocusability = focusability
+        binding.navBarContainer.descendantFocusability = focusability
+        if (blocked) {
+            binding.navHostFragment.findFocus()?.clearFocus()
+            binding.navBarContainer.findFocus()?.clearFocus()
+        }
+    }
+
     override fun onDestroy() {
         networkCallback?.let {
             val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -1012,6 +1038,7 @@ class MainActivity : AppCompatActivity() {
             .remove(supportFragmentManager.findFragmentById(R.id.playerContainer)!!)
             .commit()
         playerFragment = null
+        setContentFocusBlocked(false)
         viewModel.isPlayerOpened = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
             setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())

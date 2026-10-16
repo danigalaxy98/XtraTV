@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="tv_focus_original_foreground" type="id" />
+    <item name="tv_focus_original_stroke_width" type="id" />
+    <item name="tv_focus_original_stroke_color" type="id" />
+</resources>

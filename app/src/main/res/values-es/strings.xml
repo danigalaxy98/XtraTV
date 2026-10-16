@@ -582,4 +582,5 @@
     <string name="stopping_video_swap">Stopping video swap</string>
     <string name="starting_proxy">Starting proxy</string>
     <string name="stopping_proxy">Stopping proxy</string>
+    <string name="tv_login_instructions">En tu móvil u ordenador ve a twitch.tv/activate, introduce este código y pulsa \"Autorizar\". Después pulsa \"Siguiente\".</string>
 </resources>

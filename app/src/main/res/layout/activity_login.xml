@@ -71,6 +71,20 @@
         tools:visibility="visible" />
 
     <TextView
+        android:id="@+id/tvLoginInstructions"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="16dp"
+        android:text="@string/tv_login_instructions"
+        android:textAppearance="?attr/textAppearanceTitleMedium"
+        android:textSize="20sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toTopOf="@id/codeText"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <TextView
         android:id="@+id/codeText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

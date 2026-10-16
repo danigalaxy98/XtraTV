@@ -34,6 +34,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.databinding.ActivityLoginBinding
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TvUtils
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -163,6 +164,16 @@ class LoginActivity : AppCompatActivity() {
                 appendQueryParameter("redirect_uri", helixRedirect)
                 appendQueryParameter("scope", helixScopes.joinToString(" "))
             }.build().toString()
+            if (TvUtils.isTv(this@LoginActivity)) {
+                // typing in a WebView with a remote is impractical, use the device code flow
+                TvUtils.installFocusHighlight(this@LoginActivity)
+                tvLoginInstructions.visibility = View.VISIBLE
+                codeText.textSize = 48f
+                setupExternalCodeLogin(networkLibrary, helixClientId, helixAuthUrl)
+                copyCode.visibility = View.GONE
+                next.requestFocus()
+                return
+            }
             webView.visibility = View.VISIBLE
             textZoom.visibility = View.VISIBLE
             havingTrouble.visibility = View.VISIBLE

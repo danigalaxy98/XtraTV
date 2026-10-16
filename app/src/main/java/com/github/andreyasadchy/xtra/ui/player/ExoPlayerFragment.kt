@@ -245,7 +245,7 @@ class ExoPlayerFragment : PlayerFragment() {
                                         )
                                     }
                                 )
-                                minimize()
+                                minimizeOrClose()
                             }
                         }
                     }

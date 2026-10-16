@@ -1054,7 +1054,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 channelImage = channelImage
             )
         )
-        (parentFragment as? PlayerFragment)?.minimize()
+        (parentFragment as? PlayerFragment)?.minimizeOrClose()
     }
 
     override fun onTranslateMessageClicked(chatMessage: ChatMessage, languageTag: String?) {
