@@ -1,36 +1,60 @@
-# Cambios para Android TV (opción B)
+# Xtra para Android TV
 
-Un único APK que funciona en móvil y en TV. Todo lo nuevo solo se activa si la app detecta una TV (`TvUtils.isTv`); en el móvil se comporta igual que antes.
+Un único APK para móvil y TV:
+- En el **móvil** la app es la de siempre (`MainActivity`).
+- En la **TV**, el lanzador abre la **interfaz nueva** (`ui/tv/TvActivity`), hecha con Compose for TV.
 
-## Qué cambia en TV
+## Interfaz nueva (opción A)
 
-| Zona | Comportamiento |
+### Navegación
+Un menú lateral que se despliega al recibir el foco: **Siguiendo · Populares · Categorías · Buscar**. Abajo están **Actualizar**, **Iniciar sesión** (si no hay sesión) y **Ajustes**.
+
+| Pantalla | Qué hace |
 |---|---|
-| Listas (streams, vídeos, juegos, canales…) | El elemento seleccionado se resalta con un borde de color y un pequeño zoom |
-| Botones del reproductor, ajustes, login | El elemento enfocado lleva un borde de color |
-| Reproductor con los controles ocultos | **OK / ↑ / ↓**: muestra los controles y pone el foco en Play/Pausa<br>**← / →**: retrocede o avanza 10 s (solo en vídeos y clips)<br>**Menú**: muestra u oculta el chat<br>**⏪ / ⏩** del mando: retroceder o avanzar |
-| Reproductor con los controles visibles | Las flechas se mueven entre los botones; cada pulsación reinicia el temporizador de ocultado |
-| Atrás en el reproductor | 1.ª pulsación: oculta los controles. 2.ª: cierra el reproductor |
-| Mini-reproductor | No existe en TV, porque no se puede alcanzar con el mando. Al ir a un canal o categoría desde el reproductor, este se cierra. El botón "minimizar" se oculta |
-| Foco detrás del reproductor | Mientras el reproductor está a pantalla completa, el foco no puede saltar a las listas de detrás |
-| Login | Se usa directamente el código de dispositivo: aparece un código grande y se introduce en twitch.tv/activate desde el móvil |
-| Lanzador de Android TV | Banner propio de 320×180 (`drawable-xhdpi/tv_banner.png`) |
+| Siguiendo | Canales que sigues en directo (cuenta o seguimientos locales) |
+| Populares | Directos con más espectadores |
+| Categorías → categoría | Cuadrícula de juegos y, dentro, sus directos |
+| Buscar | Campo de texto (teclado/voz de la TV), fila de canales y cuadrícula de directos |
+| Ficha de canal | Avatar, seguidores, botón Seguir, directo actual y VODs |
 
-## Archivos tocados
+- **OK** en una tarjeta de directo: ver el directo.
+- **Mantener OK**: abrir la ficha del canal.
+- **Atrás**: volver a la pantalla anterior.
 
-- Nuevo: `util/TvUtils.kt`, `res/values/ids.xml`, `res/drawable-xhdpi/tv_banner.png`
-- `ui/main/MainActivity.kt`: reenvía las teclas al reproductor y bloquea el foco del fondo
-- `ui/player/PlayerFragment.kt`: control con el mando y `minimizeOrClose()`
-- `ui/player/ExoPlayerFragment.kt`, `ui/player/MediaPlayerFragment.kt`, `ui/chat/ChatFragment.kt`: usan `minimizeOrClose()`
-- `ui/login/LoginActivity.kt` y `layout/activity_login.xml`: login por código en TV
-- `ui/settings/SettingsActivity.kt`: resaltado de foco
-- 10 layouts `*_list_item*.xml`: `android:focusable="true"` en la tarjeta (necesario en Android TV 7)
-- `AndroidManifest.xml`: banner
-- `values/strings.xml`, `values-es/strings.xml`: texto de instrucciones del login
+### Actualizar (en lugar de deslizar hacia abajo)
+- Botón **Actualizar** en el menú lateral.
+- Automático:
+  - Al volver de ver un directo o al volver a la app.
+  - Tras 2 minutos sin tocar el mando.
+  - Al volver a una sección cuyos datos tienen más de 2 minutos.
+- Indicador "Actualizado hace X min" junto al título.
 
-## Pendiente o ideas para más adelante
+### Reproductor (`TvPlayerActivity`)
+- Vídeo a pantalla completa. El **chat** va en un panel lateral (30 %) y se activa o desactiva con el botón Chat; la elección se recuerda.
+- **OK / ↑ / ↓** muestran la capa de información (canal, título, categoría, espectadores, tiempo en directo) y los botones **Chat · Calidad · Seguir · Canal**. Se oculta sola a los 5 s.
+- VODs: **← / →** retroceden o avanzan, y hay barra de progreso y Play/Pausa.
+- **Atrás**: oculta la capa; una segunda pulsación sale del reproductor.
+- Botón Home: se detiene la reproducción.
+- Reutiliza el motor de siempre: `ExoPlayerService` (proxys, anuncios, calidades) y `ChatFragment`.
 
-- No está compilado ni probado: falta probarlo en un emulador o en una TV real.
-- Hacer automática la comprobación del código de login, para no tener que pulsar "Siguiente".
-- Búsqueda por voz.
-- Márgenes de seguridad (overscan) en televisores antiguos.
+### Archivos
+- Nuevos:
+  - `ui/tv/TvActivity.kt`, `TvScreens.kt`, `TvComponents.kt`, `TvTheme.kt`, `TvBrowseViewModel.kt`, `TvPlayerActivity.kt`
+  - `res/layout/activity_tv_player.xml`
+- `gradle/libs.versions.toml`, `app/build.gradle.kts`: Compose BOM 2026.09.00, tv-material 1.1.0, paging-compose, coil-compose, activity-compose, lifecycle-viewmodel-compose y plugin de Compose.
+- `AndroidManifest.xml`: `TvActivity` con `LEANBACK_LAUNCHER`; `MainActivity` ya no aparece en el lanzador de la TV.
+- Textos nuevos `tv_*` en `values` y `values-es`.
+
+### Limitaciones de esta versión
+- Sin chat en VODs.
+- No se puede escribir en el chat desde la TV.
+- Sin descargas ni clips.
+
+## Cambios anteriores (opción B), que se mantienen
+Mejoran la interfaz del móvil cuando se abre en una TV, por ejemplo con un enlace de twitch.tv:
+- Resaltado de foco.
+- Control con el mando en el reproductor.
+- Login por código de dispositivo.
+- Banner de 320×180.
+
+Archivos: `util/TvUtils.kt`, `ui/main/MainActivity.kt`, `ui/player/PlayerFragment.kt`, `ui/login/LoginActivity.kt` y los layouts `*_list_item*.xml`.

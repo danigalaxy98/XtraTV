@@ -597,4 +597,18 @@
     <string name="starting_proxy">Starting proxy</string>
     <string name="stopping_proxy">Stopping proxy</string>
     <string name="tv_login_instructions">On your phone or computer go to twitch.tv/activate, enter this code and press \"Authorize\". Then press \"Next\".</string>
+    <string name="tv_categories">Categories</string>
+    <string name="tv_updated_now">Updated just now</string>
+    <string name="tv_error_loading">Couldn\'t load this list</string>
+    <string name="tv_retry">Retry</string>
+    <string name="tv_empty_following">None of the channels you follow are live</string>
+    <string name="tv_empty_list">Nothing to show</string>
+    <string name="tv_login_hint">Log in to see the channels you follow on Twitch</string>
+    <string name="tv_search_hint">Search channels and streams</string>
+    <string name="tv_search_prompt">Type something to search</string>
+    <string name="tv_no_results">No results</string>
+    <string name="tv_channels">Channels</string>
+    <string name="tv_live_now">Live now</string>
+    <string name="tv_no_videos">This channel has no videos</string>
+    <string name="tv_channel">Channel</string>
 </resources>
