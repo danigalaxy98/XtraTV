@@ -75,9 +75,7 @@ private fun StreamGridItem(stream: Stream, actions: TvActions) {
 fun FollowingScreen(viewModel: TvBrowseViewModel, loggedIn: Boolean, actions: TvActions) {
     val items = viewModel.followedStreams.collectAsLazyPagingItems()
     Column {
-        ScreenTitle(stringResource(R.string.following)) {
-            UpdatedLabel(viewModel.lastUpdated[KEY_FOLLOWING])
-        }
+        ListHeader(stringResource(R.string.following), KEY_FOLLOWING, viewModel)
         PagedGrid(
             pagingItems = items,
             refreshKey = KEY_FOLLOWING,
@@ -109,9 +107,7 @@ fun FollowingScreen(viewModel: TvBrowseViewModel, loggedIn: Boolean, actions: Tv
 fun PopularScreen(viewModel: TvBrowseViewModel, actions: TvActions) {
     val items = viewModel.popularStreams.collectAsLazyPagingItems()
     Column {
-        ScreenTitle(stringResource(R.string.popular)) {
-            UpdatedLabel(viewModel.lastUpdated[KEY_POPULAR])
-        }
+        ListHeader(stringResource(R.string.popular), KEY_POPULAR, viewModel)
         PagedGrid(
             pagingItems = items,
             refreshKey = KEY_POPULAR,
@@ -128,9 +124,7 @@ fun PopularScreen(viewModel: TvBrowseViewModel, actions: TvActions) {
 fun CategoriesScreen(viewModel: TvBrowseViewModel, actions: TvActions) {
     val items = viewModel.games.collectAsLazyPagingItems()
     Column {
-        ScreenTitle(stringResource(R.string.tv_categories)) {
-            UpdatedLabel(viewModel.lastUpdated[KEY_CATEGORIES])
-        }
+        ListHeader(stringResource(R.string.tv_categories), KEY_CATEGORIES, viewModel)
         PagedGrid(
             pagingItems = items,
             refreshKey = KEY_CATEGORIES,
@@ -149,9 +143,7 @@ fun GameScreen(viewModel: TvBrowseViewModel, game: TvDestination.Game, actions: 
     val items = flow.collectAsLazyPagingItems()
     val key = "game_${game.id ?: game.slug ?: game.name}"
     Column {
-        ScreenTitle(game.name.orEmpty()) {
-            UpdatedLabel(viewModel.lastUpdated[key])
-        }
+        ListHeader(game.name.orEmpty(), key, viewModel)
         PagedGrid(
             pagingItems = items,
             refreshKey = key,

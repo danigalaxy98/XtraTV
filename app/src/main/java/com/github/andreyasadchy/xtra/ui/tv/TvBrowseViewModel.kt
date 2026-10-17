@@ -49,6 +49,9 @@ class TvBrowseViewModel(
     /** Last successful load time per list, used for the "updated" label and stale checks. */
     val lastUpdated = mutableStateMapOf<String, Long>()
 
+    /** Lists that are reloading right now. */
+    val refreshing = mutableStateMapOf<String, Boolean>()
+
     fun requestRefresh() {
         refreshTick.value++
     }

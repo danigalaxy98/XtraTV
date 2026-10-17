@@ -42,6 +42,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,6 +52,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -113,6 +115,8 @@ class TvSettingsActivity : AppCompatActivity() {
     private var version by mutableIntStateOf(0)
     private var focusContentOnNextPage = false
 
+    private val updateController = TvUpdateController(this)
+
     private val loginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         markChanged()
     }
@@ -124,6 +128,7 @@ class TvSettingsActivity : AppCompatActivity() {
         setContent {
             XtraTvTheme {
                 SettingsScreen()
+                TvUpdatePanel(updateController)
             }
         }
     }
@@ -214,6 +219,8 @@ class TvSettingsActivity : AppCompatActivity() {
         if (!preference.isEnabled) return
         val key = preference.key
         when {
+            key == TvPrefs.UPDATE_CHECK_NOW -> updateController.check(manual = true)
+            key == TvPrefs.UPDATE_VERSION -> Unit
             key == TvPrefs.ACCOUNT -> {
                 if (TvPrefs.isLoggedIn(this)) {
                     val name = tokenPrefs().getString(C.USERNAME, null) ?: ""
@@ -317,6 +324,8 @@ class TvSettingsActivity : AppCompatActivity() {
     @Composable
     private fun SettingsScreen() {
         val sectionFocus = remember { List(sections.size) { FocusRequester() } }
+        // first option of the open page: → / OK from the section list always lands here
+        val contentFocus = remember { FocusRequester() }
         var contentHasFocus by remember { mutableStateOf(false) }
         BackHandler {
             when {
@@ -357,6 +366,7 @@ class TvSettingsActivity : AppCompatActivity() {
                             selected = index == selectedSection,
                             modifier = Modifier
                                 .focusRequester(sectionFocus[index])
+                                .focusProperties { right = contentFocus }
                                 .onFocusChanged {
                                     if (it.isFocused && selectedSection != index) {
                                         selectedSection = index
@@ -364,7 +374,7 @@ class TvSettingsActivity : AppCompatActivity() {
                                         closePanel()
                                     }
                                 },
-                            onClick = { focusContentOnNextPage = true; version++ },
+                            onClick = { runCatching { contentFocus.requestFocus() } },
                         )
                     }
                 }
@@ -374,7 +384,10 @@ class TvSettingsActivity : AppCompatActivity() {
                         .fillMaxHeight()
                         .onFocusChanged { contentHasFocus = it.hasFocus },
                 ) {
-                    SectionContent()
+                    // a fresh list (scrolled to the top) for every section and sub-page
+                    key(selectedSection, pageStack.size) {
+                        SectionContent(contentFocus, sectionFocus[selectedSection])
+                    }
                 }
             }
             panel?.let { current ->
@@ -420,13 +433,12 @@ class TvSettingsActivity : AppCompatActivity() {
     }
 
     @Composable
-    private fun SectionContent() {
+    private fun SectionContent(firstRowFocus: FocusRequester, sectionFocus: FocusRequester) {
         val section = sections[selectedSection]
         val subPage = pageStack.lastOrNull()
         val group: Any = subPage ?: section.id
         val currentVersion = version
         val rows = remember(group, currentVersion) { rows(section, subPage) }
-        val firstRowFocus = remember(group) { FocusRequester() }
         val firstFocusable = rows.indexOfFirst { it is Preference }
         LaunchedEffect(group, currentVersion) {
             if (focusContentOnNextPage) {
@@ -464,7 +476,10 @@ class TvSettingsActivity : AppCompatActivity() {
                         PreferenceRow(
                             preference = preference,
                             version = currentVersion,
-                            modifier = if (index == firstFocusable) Modifier.focusRequester(firstRowFocus) else Modifier,
+                            // ← always goes back to the section this page belongs to
+                            modifier = Modifier
+                                .focusProperties { left = sectionFocus }
+                                .then(if (index == firstFocusable) Modifier.focusRequester(firstRowFocus) else Modifier),
                         )
                     }
                 }
@@ -578,9 +593,8 @@ class TvSettingsActivity : AppCompatActivity() {
             key == C.PLAYER_REWIND || key == C.PLAYER_FORWARD -> {
                 getString(R.string.seconds_full, (preference as? EditTextPreference)?.text ?: "10")
             }
-            key == "update_check_frequency" -> {
-                getString(R.string.update_check_frequency_summary, (preference as? EditTextPreference)?.text.orEmpty())
-            }
+            key == TvPrefs.UPDATE_VERSION -> TvUpdater.versionSummary(this)
+            key == TvPrefs.UPDATE_CHECK_NOW -> getString(R.string.tv_update_check_now_summary)
             key != null && TvSettingsModel.tokenKeys.containsKey(key) -> {
                 val text = (preference as? EditTextPreference)?.text
                 when {

@@ -33,7 +33,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -87,6 +89,16 @@ class TvActivity : ComponentActivity() {
     }
 
     private var crashText by mutableStateOf<String?>(null)
+    private var exitConfirm by mutableStateOf(false)
+    private val updateController = TvUpdateController(this)
+
+    /** Side menu entries, so the left key from a grid always returns to the section being shown. */
+    private val railFocus = mapOf<TvDestination, FocusRequester>(
+        TvDestination.Following to FocusRequester(),
+        TvDestination.Popular to FocusRequester(),
+        TvDestination.Categories to FocusRequester(),
+        TvDestination.Search to FocusRequester(),
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -105,6 +117,9 @@ class TvActivity : ComponentActivity() {
             )
         }
         handleIntent(intent)
+        if (savedInstanceState == null && TvUpdater.shouldAutoCheck(this)) {
+            updateController.check(manual = false)
+        }
         setContent {
             XtraTvTheme {
                 TvApp()
@@ -142,6 +157,11 @@ class TvActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
+        if (intent.action == TvUpdater.ACTION_INSTALL_RESULT) {
+            TvUpdater.handleInstallResult(this, intent)
+            intent.action = null
+            return
+        }
         val channelId = intent.getStringExtra(EXTRA_CHANNEL_ID)
         val channelLogin = intent.getStringExtra(EXTRA_CHANNEL_LOGIN)
         if (channelId != null || channelLogin != null) {
@@ -179,6 +199,9 @@ class TvActivity : ComponentActivity() {
         BackHandler(enabled = backStack.size > 1) {
             backStack.removeAt(backStack.lastIndex)
         }
+        BackHandler(enabled = backStack.size <= 1 && !exitConfirm) {
+            exitConfirm = true
+        }
         Row(
             modifier = Modifier
                 .fillMaxSize()
@@ -198,20 +221,66 @@ class TvActivity : ComponentActivity() {
                     openGame = { id, slug, name -> navigate(TvDestination.Game(id, slug, name)) },
                     login = { accountResultLauncher.launch(Intent(this@TvActivity, LoginActivity::class.java)) },
                 )
-                when (current) {
-                    TvDestination.Following -> FollowingScreen(viewModel, loggedIn, actions)
-                    TvDestination.Popular -> PopularScreen(viewModel, actions)
-                    TvDestination.Categories -> CategoriesScreen(viewModel, actions)
-                    TvDestination.Search -> SearchScreen(viewModel, actions)
-                    is TvDestination.Game -> GameScreen(viewModel, current, actions)
-                    is TvDestination.Channel -> ChannelScreen(viewModel, current, actions)
+                CompositionLocalProvider(LocalRailFocus provides backStack.firstOrNull()?.let { railFocus[it] }) {
+                    when (current) {
+                        TvDestination.Following -> FollowingScreen(viewModel, loggedIn, actions)
+                        TvDestination.Popular -> PopularScreen(viewModel, actions)
+                        TvDestination.Categories -> CategoriesScreen(viewModel, actions)
+                        TvDestination.Search -> SearchScreen(viewModel, actions)
+                        is TvDestination.Game -> GameScreen(viewModel, current, actions)
+                        is TvDestination.Channel -> ChannelScreen(viewModel, current, actions)
+                    }
                 }
             }
         }
+        if (exitConfirm) {
+            ExitPanel()
+        }
+        TvUpdatePanel(updateController)
         crashText?.let { text ->
             CrashPanel(text) {
                 TvCrashLog.clear(this@TvActivity)
                 crashText = null
+            }
+        }
+    }
+
+    @Composable
+    private fun ExitPanel() {
+        val noButton = remember { FocusRequester() }
+        BackHandler { exitConfirm = false }
+        LaunchedEffect(Unit) {
+            withFrameNanos { }
+            runCatching { noButton.requestFocus() }
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xCC000000)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Column(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(TvColors.Surface)
+                    .padding(horizontal = 48.dp, vertical = 36.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = stringResource(R.string.tv_exit_title),
+                    color = TvColors.Text,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(28.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    PillButton(text = stringResource(R.string.yes), onClick = { finish() })
+                    PillButton(
+                        text = stringResource(R.string.no),
+                        onClick = { exitConfirm = false },
+                        modifier = Modifier.focusRequester(noButton),
+                    )
+                }
             }
         }
     }
@@ -290,16 +359,16 @@ class TvActivity : ComponentActivity() {
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 14.dp, bottom = 32.dp),
             )
-            RailItem(R.drawable.ic_favorite_black_24dp, R.string.following, expanded, current == TvDestination.Following) {
+            RailItem(R.drawable.ic_favorite_black_24dp, R.string.following, expanded, current == TvDestination.Following, railFocus.getValue(TvDestination.Following)) {
                 openSection(TvDestination.Following)
             }
-            RailItem(R.drawable.ic_trending_up_black_24dp, R.string.popular, expanded, current == TvDestination.Popular) {
+            RailItem(R.drawable.ic_trending_up_black_24dp, R.string.popular, expanded, current == TvDestination.Popular, railFocus.getValue(TvDestination.Popular)) {
                 openSection(TvDestination.Popular)
             }
-            RailItem(R.drawable.ic_games_black_24dp, R.string.tv_categories, expanded, current == TvDestination.Categories) {
+            RailItem(R.drawable.ic_games_black_24dp, R.string.tv_categories, expanded, current == TvDestination.Categories, railFocus.getValue(TvDestination.Categories)) {
                 openSection(TvDestination.Categories)
             }
-            RailItem(R.drawable.baseline_search_black_24, R.string.search, expanded, current == TvDestination.Search) {
+            RailItem(R.drawable.baseline_search_black_24, R.string.search, expanded, current == TvDestination.Search, railFocus.getValue(TvDestination.Search)) {
                 openSection(TvDestination.Search)
             }
             Spacer(Modifier.weight(1f))
@@ -319,10 +388,18 @@ class TvActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun RailItem(@DrawableRes icon: Int, @StringRes label: Int, expanded: Boolean, selected: Boolean, onClick: () -> Unit) {
+    private fun RailItem(
+        @DrawableRes icon: Int,
+        @StringRes label: Int,
+        expanded: Boolean,
+        selected: Boolean,
+        focusRequester: FocusRequester? = null,
+        onClick: () -> Unit,
+    ) {
         Surface(
             onClick = onClick,
             modifier = Modifier
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .fillMaxWidth()
                 .padding(vertical = 4.dp),
             shape = TvFocus.pillShape(),

@@ -17,6 +17,8 @@ object TvPrefs {
     const val OVERLAY_TIMEOUT = "tv_overlay_timeout"
     const val ACCOUNT = "tv_account"
     const val CLASSIC_SETTINGS = "tv_classic_settings"
+    const val UPDATE_VERSION = "tv_update_version"
+    const val UPDATE_CHECK_NOW = "tv_update_check_now"
 
     const val START_AUTO = "auto"
     const val START_FOLLOWING = "following"

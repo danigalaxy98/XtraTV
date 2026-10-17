@@ -55,4 +55,23 @@
         android:title="@string/tv_pref_classic_settings"
         app:iconSpaceReserved="false" />
 
+    <Preference
+        android:key="tv_update_version"
+        android:title="@string/tv_update_version_title"
+        app:iconSpaceReserved="false" />
+
+    <Preference
+        android:key="tv_update_check_now"
+        android:title="@string/tv_update_check_now"
+        app:iconSpaceReserved="false" />
+
+    <ListPreference
+        android:defaultValue="7"
+        android:entries="@array/tvUpdateFrequencyEntries"
+        android:entryValues="@array/tvUpdateFrequencyValues"
+        android:key="update_check_frequency"
+        android:title="@string/tv_update_frequency"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
 </androidx.preference.PreferenceScreen>

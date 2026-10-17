@@ -1,7 +1,25 @@
 package com.github.andreyasadchy.xtra.ui.tv
 
 import androidx.annotation.DrawableRes
-import androidx.compose.foundation.background
+import android.text.format.DateFormat
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.platform.LocalContext
+import java.util.Dateimport androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,31 +93,85 @@ fun ScreenTitle(text: String, modifier: Modifier = Modifier, trailing: @Composab
     }
 }
 
+/** Focus target for the left key from the first grid column: the side menu entry of the current section. */
+val LocalRailFocus = staticCompositionLocalOf<FocusRequester?> { null }
+
+/** Extra modifier that grids hand to the card of each item (used to route the left key to the side menu). */
+val LocalCardModifier = compositionLocalOf<Modifier> { Modifier }
+
 /**
- * "Updated X min ago" indicator shown next to the screen title.
+ * Title of a list screen with its refresh status: "Updating…" with a moving bar while it reloads,
+ * then "✓ Updated at 21:34", highlighted for a few seconds when a reload has just finished.
  */
 @Composable
-fun UpdatedLabel(lastUpdated: Long?) {
-    if (lastUpdated == null) return
-    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+fun ListHeader(title: String, refreshKey: String, state: TvBrowseViewModel) {
+    val refreshing = state.refreshing[refreshKey] == true
+    val lastUpdated = state.lastUpdated[refreshKey]
+    Column(modifier = Modifier.padding(bottom = 12.dp)) {
+        ScreenTitle(title, modifier = Modifier.padding(bottom = 0.dp)) {
+            RefreshStatus(lastUpdated, refreshing)
+        }
+        Spacer(Modifier.height(8.dp))
+        RefreshBar(visible = refreshing)
+    }
+}
+
+@Composable
+fun RefreshStatus(lastUpdated: Long?, refreshing: Boolean) {
+    val context = LocalContext.current
+    val initial = remember { lastUpdated }
+    var highlight by remember { mutableStateOf(false) }
     LaunchedEffect(lastUpdated) {
-        while (true) {
-            now = System.currentTimeMillis()
-            delay(30.seconds)
+        if (lastUpdated != null && lastUpdated != initial) {
+            highlight = true
+            delay(3.seconds)
+            highlight = false
         }
     }
-    val minutes = ((now - lastUpdated) / 60_000).toInt()
+    val color by animateColorAsState(if (highlight) TvColors.Accent else TvColors.TextSecondary, label = "refreshStatus")
+    val text = when {
+        refreshing -> stringResource(R.string.tv_updating)
+        lastUpdated != null -> stringResource(R.string.tv_updated_at, DateFormat.getTimeFormat(context).format(Date(lastUpdated)))
+        else -> return
+    }
     Text(
-        text = if (minutes < 1) {
-            stringResource(R.string.tv_updated_now)
-        } else {
-            pluralStringResource(R.plurals.tv_updated_minutes, minutes, minutes)
-        },
-        color = TvColors.TextSecondary,
-        fontSize = 14.sp,
+        text = text,
+        color = if (refreshing) TvColors.Text else color,
+        fontSize = 15.sp,
+        fontWeight = if (highlight) FontWeight.Bold else FontWeight.Normal,
     )
 }
 
+/** Thin indeterminate bar shown while content is being reloaded. */
+@Composable
+fun RefreshBar(visible: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(3.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(if (visible) TvColors.SurfaceFocused else Color.Transparent),
+    ) {
+        if (visible) {
+            val transition = rememberInfiniteTransition(label = "refreshBar")
+            val offset by transition.animateFloat(
+                initialValue = -0.3f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)),
+                label = "refreshBarOffset",
+            )
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .offset(x = maxWidth * offset)
+                        .width(maxWidth * 0.3f)
+                        .fillMaxHeight()
+                        .background(TvColors.Accent),
+                )
+            }
+        }
+    }
+}
 @Composable
 fun MessageBox(text: String, buttonText: String? = null, onButtonClick: () -> Unit = {}) {
     Column(
@@ -180,11 +252,20 @@ fun <T : Any> PagedGrid(
         }
     }
     val refreshState = pagingItems.loadState.refresh
+    var wasLoading by remember { mutableStateOf(false) }
     LaunchedEffect(refreshState) {
-        if (refreshState is LoadState.NotLoading && pagingItems.itemCount > 0) {
+        val loading = refreshState is LoadState.Loading
+        state.refreshing[refreshKey] = loading
+        // only a finished reload counts as an update (showing cached data again does not)
+        if (wasLoading && refreshState is LoadState.NotLoading) {
             state.lastUpdated[refreshKey] = System.currentTimeMillis()
         }
+        wasLoading = loading
     }
+    DisposableEffect(refreshKey) {
+        onDispose { state.refreshing[refreshKey] = false }
+    }
+    val railFocus = LocalRailFocus.current
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         modifier = modifier.fillMaxSize(),
@@ -208,7 +289,14 @@ fun <T : Any> PagedGrid(
                 MessageBox(emptyText)
             }
             else -> items(count = pagingItems.itemCount) { index ->
-                pagingItems[index]?.let { itemContent(it) }
+                val cardModifier = if (railFocus != null && index % columns == 0) {
+                    Modifier.focusProperties { left = railFocus }
+                } else {
+                    Modifier
+                }
+                CompositionLocalProvider(LocalCardModifier provides cardModifier) {
+                    pagingItems[index]?.let { itemContent(it) }
+                }
             }
         }
     }
@@ -282,6 +370,7 @@ fun StreamCard(stream: Stream, onClick: () -> Unit, onLongClick: () -> Unit) {
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
+        modifier = LocalCardModifier.current,
         shape = TvFocus.cardShape(),
         colors = TvFocus.colors(),
         border = TvFocus.border(),
@@ -316,6 +405,7 @@ fun StreamCard(stream: Stream, onClick: () -> Unit, onLongClick: () -> Unit) {
 fun VideoCard(video: Video, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
+        modifier = LocalCardModifier.current,
         shape = TvFocus.cardShape(),
         colors = TvFocus.colors(),
         border = TvFocus.border(),
@@ -347,6 +437,7 @@ fun VideoCard(video: Video, onClick: () -> Unit) {
 fun GameCard(game: Game, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
+        modifier = LocalCardModifier.current,
         shape = TvFocus.cardShape(),
         colors = TvFocus.colors(),
         border = TvFocus.border(),

@@ -76,6 +76,21 @@ Un menú lateral que se despliega al recibir el foco: **Siguiendo · Populares �
 - Las actualizaciones apuntan al fork `danigalaxy98/XtraTV` (`TvPrefs.ensureForkUpdateUrl`).
 - "Todos los ajustes (pantalla clásica)" sigue disponible en Avanzado.
 
+### Navegación, salida y actualizaciones
+- **Foco con ←**:
+  - Desde la primera columna de tarjetas va al elemento del menú de la sección actual (`LocalRailFocus`).
+  - En Ajustes, desde cualquier opción vuelve a su sección (`focusProperties`).
+  - En Ajustes, → u OK desde una sección entran siempre en la primera opción, y la lista se reinicia al cambiar de sección.
+- **Salir**: Atrás en una sección principal pregunta "¿Quieres salir de Xtra?" (Sí/No, con el foco en No).
+- **Estado de las listas**:
+  - Mientras recarga: "Actualizando…" y una barra animada.
+  - Al terminar: "✓ Actualizado a las HH:mm", resaltado unos segundos.
+  - Solo cuenta como actualización una recarga real (`ListHeader`).
+- **Actualizaciones** (`TvUpdater.kt`), sin pasar por la interfaz del móvil:
+  - Versión instalada, "Buscar actualizaciones ahora", búsqueda automática (sí/no) y frecuencia (1, 3 o 7 días).
+  - Panel con fecha, tamaño y novedades, descarga con progreso e instalador de Android.
+  - Un APK solo se considera nuevo si se subió después de instalar la versión actual. "Ahora no" lo descarta.
+
 ### Registro de errores (`TvCrashLog`)
 Si la app se cierra por un error, al volver a abrirla se muestra el error en pantalla para poder fotografiarlo.
 

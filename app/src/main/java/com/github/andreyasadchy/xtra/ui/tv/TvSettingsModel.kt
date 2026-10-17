@@ -72,7 +72,6 @@ object TvSettingsModel {
         "stream_proxy_settings" to R.id.action_global_streamProxySettingsFragment,
         "video_swap_settings" to R.id.action_global_videoSwapSettingsFragment,
         "get_integrity_token" to R.id.action_global_debugSettingsFragment,
-        "check_updates" to 0,
         TvPrefs.CLASSIC_SETTINGS to 0,
     )
 
@@ -136,12 +135,15 @@ object TvSettingsModel {
             ),
             TvSettingsSection(
                 "updates", context.getString(R.string.tv_section_updates),
-                prefs(root, "check_updates") + prefs(R.xml.update_preferences, C.UPDATE_URL),
+                prefs(tv, TvPrefs.UPDATE_VERSION, TvPrefs.UPDATE_CHECK_NOW) +
+                        prefs(R.xml.update_preferences, C.UPDATE_CHECK_ENABLED) +
+                        prefs(tv, C.UPDATE_CHECK_FREQUENCY),
             ),
             TvSettingsSection(
                 "advanced", context.getString(R.string.tv_section_advanced),
                 listOf(header(R.string.tv_header_network)) +
                         prefs(root, C.NETWORK_LIBRARY) +
+                        prefs(R.xml.update_preferences, C.UPDATE_URL) +
                         header(R.string.tv_header_buffer) +
                         prefs(
                             R.xml.buffer_preferences, "player_buffer_min", "player_buffer_max", "player_buffer_playback",
