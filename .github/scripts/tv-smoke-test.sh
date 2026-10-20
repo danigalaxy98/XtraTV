@@ -36,6 +36,14 @@ key() {
   sleep 2
 }
 
+# texts on screen and a screenshot (uploaded as an artifact), to see what the test reached
+shot() {
+  mkdir -p smoke-screens
+  adb exec-out screencap -p > "smoke-screens/$1.png" || true
+  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1 &&
+    adb shell cat /sdcard/ui.xml | grep -o 'text="[^"]\+"' | head -n 25 | tr '\n' ' ' && echo
+}
+
 adb install -r "$apk" || fail "install"
 adb logcat -c
 adb logcat -b crash -c || true
@@ -45,14 +53,17 @@ adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.L
 sleep 25
 check "start"
 top_activity | grep -q "ui.tv.TvActivity" || fail "the launcher did not open TvActivity: $(top_activity)"
+shot 1-start
 
 echo "== First stream"
 # nothing is focused at start: the first key focuses the screen, the second one reaches a card
 key DPAD_RIGHT
 key DPAD_RIGHT
+shot 2-focused
 key DPAD_CENTER
 sleep 25
 check "player"
+shot 3-player
 if top_activity | grep -q "ui.tv.TvPlayerActivity"; then
   echo "== Overlay and back"
   key DPAD_CENTER

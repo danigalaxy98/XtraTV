@@ -125,6 +125,14 @@ jobs:
         disable-animations: true
         script: bash .github/scripts/tv-smoke-test.sh "$APK" || { echo "La prueba en el emulador de Android TV ha fallado (cierre, ANR o pantalla equivocada)." > reason.txt; exit 1; }
 
+    - name: Upload the smoke test screenshots
+      if: always() && (steps.merge.outputs.changed == 'true' || inputs.force_test)
+      uses: actions/upload-artifact@v7
+      with:
+        name: smoke-screens
+        path: smoke-screens/
+        if-no-files-found: ignore
+
     - name: Push to master
       if: steps.merge.outputs.changed == 'true'
       run: |
