@@ -114,6 +114,11 @@ class TvPlayerActivity : AppCompatActivity() {
     private var consumedKeyCode = -1
     // VOD: overlay opened by a seek, left/right keep seeking until OK/up/down
     private var seekMode = false
+    // VOD: while a seek key is held the bar moves faster and faster, the real seek happens on release
+    private var scrubTarget by mutableStateOf<Long?>(null)
+    private var scrubForward by mutableStateOf(true)
+    private var scrubSpeed by mutableLongStateOf(0L)
+    private var lastScrubEventTime = 0L
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var defaultNetwork: Network? = null
@@ -449,6 +454,51 @@ class TvPlayerActivity : AppCompatActivity() {
         showOverlay()
     }
 
+    /** A first press seeks by the usual step; holding the key scrubs, faster the longer it is held. */
+    private fun seekKey(event: KeyEvent, forward: Boolean) {
+        if (event.repeatCount == 0) {
+            scrubTarget = null
+            seek(forward)
+            return
+        }
+        val player = service?.player ?: return
+        val current = scrubTarget
+        val base = current ?: player.currentPosition.coerceAtLeast(0)
+        if (current == null || scrubForward != forward) {
+            lastScrubEventTime = event.downTime
+        }
+        // video seconds per second held
+        val speed = when (event.eventTime - event.downTime) {
+            in 0L until 2000L -> 30L
+            in 2000L until 4000L -> 60L
+            in 4000L until 7000L -> 120L
+            in 7000L until 10000L -> 300L
+            else -> 600L
+        }
+        val elapsed = (event.eventTime - lastScrubEventTime).coerceIn(0, 250)
+        lastScrubEventTime = event.eventTime
+        val total = player.duration
+        val target = (base + (if (forward) 1 else -1) * elapsed * speed).let {
+            if (total > 0) it.coerceIn(0, total) else it.coerceAtLeast(0)
+        }
+        scrubTarget = target
+        scrubForward = forward
+        scrubSpeed = speed
+        position = target
+        if (total > 0) {
+            duration = total
+            progress = target.toFloat() / total
+        }
+        seekMode = true
+        showOverlay()
+    }
+
+    private fun commitScrub() {
+        val target = scrubTarget ?: return
+        scrubTarget = null
+        service?.seekTo(target)
+    }
+
     private fun play() {
         val service = service ?: return
         val player = service.secondaryPlayer ?: service.player ?: return
@@ -461,10 +511,13 @@ class TvPlayerActivity : AppCompatActivity() {
         val keyCode = event.keyCode
         if (event.action == KeyEvent.ACTION_UP && keyCode == consumedKeyCode) {
             consumedKeyCode = -1
+            commitScrub()
             return true
         }
         if (event.action == KeyEvent.ACTION_DOWN) {
             lastInteraction = System.currentTimeMillis()
+            // a new press while a scrub is pending (its key release was missed) applies it first
+            if (event.repeatCount == 0) commitScrub()
             if (!overlayVisible) seekMode = false
             when (keyCode) {
                 KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
@@ -489,7 +542,7 @@ class TvPlayerActivity : AppCompatActivity() {
                 }
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_REWIND,
                 KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                    if (!isStream) seek(keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT)
+                    if (!isStream) seekKey(event, keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT)
                     consumedKeyCode = keyCode
                     return true
                 }
@@ -497,7 +550,7 @@ class TvPlayerActivity : AppCompatActivity() {
             if (overlayVisible && seekMode && !qualityMenuVisible) {
                 when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                        seek(keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+                        seekKey(event, keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
                         consumedKeyCode = keyCode
                         return true
                     }
@@ -514,7 +567,7 @@ class TvPlayerActivity : AppCompatActivity() {
                 when (keyCode) {
                     KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                         if (!isStream) {
-                            seek(keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+                            seekKey(event, keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
                         } else if (event.repeatCount == 0) {
                             showOverlay()
                         }
@@ -551,7 +604,8 @@ class TvPlayerActivity : AppCompatActivity() {
                 }
                 while (true) {
                     val player = service?.player
-                    if (player != null && !isStream) {
+                    // while scrubbing the bar shows the target, not the playback position
+                    if (player != null && !isStream && scrubTarget == null) {
                         position = player.currentPosition.coerceAtLeast(0)
                         duration = player.duration.coerceAtLeast(0)
                         progress = if (duration > 0) position.toFloat() / duration else 0f
@@ -675,6 +729,15 @@ class TvPlayerActivity : AppCompatActivity() {
     private fun ProgressBar() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(formatDuration(position / 1000), color = Color.White, fontSize = 14.sp)
+            if (scrubTarget != null) {
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = (if (scrubForward) "⏩ ×" else "⏪ ×") + scrubSpeed,
+                    color = TvColors.Accent,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
             Spacer(Modifier.width(16.dp))
             Box(
                 modifier = Modifier
