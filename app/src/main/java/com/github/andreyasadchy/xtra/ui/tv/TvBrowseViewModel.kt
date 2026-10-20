@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
+import androidx.paging.PagingSource
 import androidx.paging.cachedIn
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.XtraModule
@@ -56,6 +57,48 @@ class TvBrowseViewModel(
         refreshTick.value++
     }
 
+    /** Last tick handled by each list, so a list shown again still catches up with a reload asked meanwhile. */
+    private val handledTicks = mutableMapOf<String, Int>()
+
+    /** Lists whose next finished load comes from an explicit reload (not from cached pages shown again). */
+    private val reloadRequested = mutableSetOf<String>()
+
+    /** True when [key] has not reloaded for [tick] yet; the first call for a key only registers it. */
+    fun takePendingTick(key: String, tick: Int): Boolean {
+        val handled = handledTicks.put(key, tick)
+        return handled != null && handled < tick
+    }
+
+    fun markReloadRequested(key: String) {
+        reloadRequested.add(key)
+    }
+
+    fun consumeReloadRequested(key: String): Boolean = reloadRequested.remove(key)
+
+    private val trackedSources = mutableSetOf<PagingSource<*, *>>()
+
+    private fun <S : PagingSource<*, *>> S.tracked(): S {
+        synchronized(trackedSources) { trackedSources.add(this) }
+        registerInvalidatedCallback { synchronized(trackedSources) { trackedSources.remove(this) } }
+        return this
+    }
+
+    /** Drops the loaded pages of every list (shown or not), e.g. after the account changed. */
+    fun reloadAll() {
+        reloadRequested.addAll(handledTicks.keys)
+        val sources = synchronized(trackedSources) { trackedSources.toList() }
+        sources.forEach { it.invalidate() }
+    }
+
+    /** Identifies the current account and tokens, to detect a session change. */
+    fun sessionKey(): String {
+        return listOf(
+            applicationContext.tokenPrefs().getString(C.USER_ID, null),
+            TwitchApiHelper.getGQLHeaders(applicationContext, true)[C.HEADER_TOKEN],
+            TwitchApiHelper.getHelixHeaders(applicationContext)[C.HEADER_TOKEN],
+        ).joinToString("|")
+    }
+
     /** Age after which a list reloads when shown again; 0 when automatic refresh is disabled. */
     fun staleMs(): Long = TvPrefs.autoRefreshMs(applicationContext)
 
@@ -76,7 +119,7 @@ class TvBrowseViewModel(
             helixRepository = xtraModule.helixRepository,
             enableIntegrity = enableIntegrity,
             networkLibrary = networkLibrary,
-        )
+        ).tracked()
     }.flow.cachedIn(viewModelScope)
 
     val popularStreams: Flow<PagingData<Stream>> = Pager(pagingConfig) {
@@ -92,7 +135,7 @@ class TvBrowseViewModel(
             helixRepository = xtraModule.helixRepository,
             enableIntegrity = enableIntegrity,
             networkLibrary = networkLibrary,
-        )
+        ).tracked()
     }.flow.cachedIn(viewModelScope)
 
     val games: Flow<PagingData<Game>> = Pager(pagingConfig) {
@@ -104,7 +147,7 @@ class TvBrowseViewModel(
             helixRepository = xtraModule.helixRepository,
             enableIntegrity = enableIntegrity,
             networkLibrary = networkLibrary,
-        )
+        ).tracked()
     }.flow.cachedIn(viewModelScope)
 
     private val gameStreamsCache = mutableMapOf<String, Flow<PagingData<Stream>>>()
@@ -128,7 +171,7 @@ class TvBrowseViewModel(
                     helixRepository = xtraModule.helixRepository,
                     enableIntegrity = enableIntegrity,
                     networkLibrary = networkLibrary,
-                )
+                ).tracked()
             }.flow.cachedIn(viewModelScope)
         }
     }
@@ -155,7 +198,7 @@ class TvBrowseViewModel(
                     helixRepository = xtraModule.helixRepository,
                     enableIntegrity = enableIntegrity,
                     networkLibrary = networkLibrary,
-                )
+                ).tracked()
             }.flow.cachedIn(viewModelScope)
         }
     }
@@ -176,7 +219,7 @@ class TvBrowseViewModel(
                     helixRepository = xtraModule.helixRepository,
                     enableIntegrity = enableIntegrity,
                     networkLibrary = networkLibrary,
-                )
+                ).tracked()
             }.flow
         }
     }.cachedIn(viewModelScope)
@@ -195,7 +238,7 @@ class TvBrowseViewModel(
                     helixRepository = xtraModule.helixRepository,
                     enableIntegrity = enableIntegrity,
                     networkLibrary = networkLibrary,
-                )
+                ).tracked()
             }.flow
         }
     }.cachedIn(viewModelScope)

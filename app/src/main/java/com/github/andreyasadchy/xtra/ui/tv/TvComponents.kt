@@ -16,6 +16,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.platform.LocalContext
@@ -61,11 +62,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.itemKey
 import androidx.tv.material3.Icon
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Stream
@@ -236,19 +240,20 @@ fun <T : Any> PagedGrid(
     emptyText: String,
     modifier: Modifier = Modifier,
     header: (LazyGridScope.() -> Unit)? = null,
+    key: ((T) -> Any)? = null,
     itemContent: @Composable (T) -> Unit,
 ) {
     val tick by state.refreshTick.collectAsState()
-    val startTick = remember { tick }
-    LaunchedEffect(tick) {
-        if (tick != startTick) {
-            pagingItems.refresh()
-        }
-    }
-    LaunchedEffect(refreshKey) {
+    LaunchedEffect(refreshKey, tick) {
+        // the view model remembers the ticks each list has handled, so a new composition does not miss one
+        val pendingTick = state.takePendingTick(refreshKey, tick)
         val last = state.lastUpdated[refreshKey]
         val stale = state.staleMs()
-        if (last != null && stale > 0 && System.currentTimeMillis() - last > stale) {
+        val isStale = last != null && stale > 0 && System.currentTimeMillis() - last > stale
+        if (pendingTick || isStale) {
+            // a refresh sent before the list has collected its data is dropped, wait one frame
+            withFrameNanos { }
+            state.markReloadRequested(refreshKey)
             pagingItems.refresh()
         }
     }
@@ -257,12 +262,15 @@ fun <T : Any> PagedGrid(
     LaunchedEffect(refreshState) {
         val loading = refreshState is LoadState.Loading
         state.refreshing[refreshKey] = loading
-        // only a finished reload counts as an update (showing cached data again does not)
-        if (wasLoading && refreshState is LoadState.NotLoading) {
+        // only a requested reload (or the first load) counts as an update, showing cached pages again does not
+        if (wasLoading && refreshState is LoadState.NotLoading &&
+            (state.consumeReloadRequested(refreshKey) || state.lastUpdated[refreshKey] == null)
+        ) {
             state.lastUpdated[refreshKey] = System.currentTimeMillis()
         }
         wasLoading = loading
     }
+    val itemKey = rememberUniqueItemKey(pagingItems, key)
     DisposableEffect(refreshKey) {
         onDispose { state.refreshing[refreshKey] = false }
     }
@@ -289,17 +297,56 @@ fun <T : Any> PagedGrid(
             pagingItems.itemCount == 0 && refreshState is LoadState.NotLoading -> fullWidthItem {
                 MessageBox(emptyText)
             }
-            else -> items(count = pagingItems.itemCount) { index ->
-                val cardModifier = if (railFocus != null && index % columns == 0) {
-                    Modifier.focusProperties { left = railFocus }
-                } else {
-                    Modifier
+            else -> {
+                items(count = pagingItems.itemCount, key = itemKey) { index ->
+                    val cardModifier = if (railFocus != null && index % columns == 0) {
+                        Modifier.focusProperties { left = railFocus }
+                    } else {
+                        Modifier
+                    }
+                    CompositionLocalProvider(LocalCardModifier provides cardModifier) {
+                        pagingItems[index]?.let { itemContent(it) }
+                    }
                 }
-                CompositionLocalProvider(LocalCardModifier provides cardModifier) {
-                    pagingItems[index]?.let { itemContent(it) }
+                when (pagingItems.loadState.append) {
+                    is LoadState.Loading -> fullWidthItem {
+                        MessageBox(stringResource(R.string.loading))
+                    }
+                    is LoadState.Error -> fullWidthItem {
+                        MessageBox(
+                            text = stringResource(R.string.tv_error_loading),
+                            buttonText = stringResource(R.string.tv_retry),
+                            onButtonClick = { pagingItems.retry() },
+                        )
+                    }
+                    is LoadState.NotLoading -> Unit
                 }
             }
         }
+    }
+}
+
+/**
+ * Stable item keys for lazy lists of paging data. Twitch can return the same item on two pages,
+ * so a repeated key gets the index appended instead of crashing the lazy layout.
+ */
+@Composable
+fun <T : Any> rememberUniqueItemKey(pagingItems: LazyPagingItems<T>, key: ((T) -> Any)?): ((Int) -> Any)? {
+    if (key == null) return null
+    // a new snapshot (reload or new page) starts a new key assignment
+    val snapshot = pagingItems.itemSnapshotList
+    return remember(snapshot, key) {
+        val baseKey = pagingItems.itemKey(key)
+        val assigned = HashMap<Int, Any>()
+        val owners = HashMap<Any, Int>()
+        val uniqueKey: (Int) -> Any = { index ->
+            assigned.getOrPut(index) {
+                val base = baseKey(index)
+                val owner = owners.getOrPut(base) { index }
+                if (owner == index) base else "$base@$index"
+            }
+        }
+        uniqueKey
     }
 }
 
@@ -308,9 +355,9 @@ fun LazyGridScope.fullWidthItem(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Thumbnail(url: String?, modifier: Modifier = Modifier, ratio: Float = 16f / 9f) {
+private fun Thumbnail(model: Any?, modifier: Modifier = Modifier, ratio: Float = 16f / 9f) {
     AsyncImage(
-        model = url,
+        model = model,
         contentDescription = null,
         contentScale = ContentScale.Crop,
         modifier = modifier
@@ -319,6 +366,21 @@ private fun Thumbnail(url: String?, modifier: Modifier = Modifier, ratio: Float 
             .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
             .background(TvColors.Background),
     )
+}
+
+/** Live previews change constantly: cache them in memory for 5 minutes only, like the phone lists do. */
+@Composable
+private fun liveThumbnailRequest(url: String?): ImageRequest {
+    val context = LocalContext.current
+    val minutes = System.currentTimeMillis() / 60000L
+    val bucket = minutes - minutes % 5
+    return remember(url, bucket) {
+        ImageRequest.Builder(context)
+            .data(url)
+            .memoryCacheKeyExtra("minutes", bucket.toString())
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .build()
+    }
 }
 
 @Composable
@@ -379,7 +441,7 @@ fun StreamCard(stream: Stream, onClick: () -> Unit, onLongClick: () -> Unit) {
     ) {
         Column {
             Box {
-                Thumbnail(stream.thumbnail)
+                Thumbnail(liveThumbnailRequest(stream.thumbnail))
                 Badge(
                     text = stringResource(R.string.live).uppercase(),
                     color = TvColors.Live,

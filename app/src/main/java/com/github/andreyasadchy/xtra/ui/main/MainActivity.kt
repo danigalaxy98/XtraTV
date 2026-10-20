@@ -89,6 +89,7 @@ import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
+import com.github.andreyasadchy.xtra.ui.tv.TvActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TvUtils
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -116,6 +117,14 @@ class MainActivity : AppCompatActivity() {
         const val INTENT_OPEN_PLAYER = "com.github.andreyasadchy.xtra.OPEN_PLAYER"
         const val INTENT_START_AUDIO_ONLY = "com.github.andreyasadchy.xtra.START_AUDIO_ONLY"
         const val INTENT_PLAY_PAUSE_PLAYER = "com.github.andreyasadchy.xtra.PLAY_PAUSE_PLAYER"
+
+        private val TV_LOGIN_REGEX = Regex("^[A-Za-z0-9_]{1,25}$")
+        private val TV_RESERVED_PATHS = setOf(
+            "videos", "clip", "clips", "directory", "search", "settings", "team", "downloads", "drops",
+            "inventory", "wallet", "subscriptions", "following", "friends", "messages", "login", "signup",
+            "logout", "jobs", "turbo", "prime", "store", "p", "u", "popout", "embed", "moderator",
+            "broadcast", "dashboard", "bits", "privacy", "legal", "activate", "collections",
+        )
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -136,6 +145,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && TvUtils.isTv(this)) {
+            tvChannelLogin(intent)?.let { login ->
+                // channel links open in the TV interface, other links keep the phone screens
+                TvActivity.openChannel(this, null, login, null)
+                finish()
+                return
+            }
+        }
         prefs = prefs()
         migrateSettings()
         if (tokenPrefs().getLong(C.UPDATE_LAST_CHECKED, 0) <= 0L) {
@@ -698,6 +715,17 @@ class MainActivity : AppCompatActivity() {
                 //device doesn't support PIP
             }
         }
+    }
+
+    /** Login of a plain channel link (twitch.tv/<login>), or null for any other link. */
+    private fun tvChannelLogin(intent: Intent?): String? {
+        if (intent?.action != Intent.ACTION_VIEW) return null
+        val uri = intent.data ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        if (host != "twitch.tv" && host != "www.twitch.tv" && host != "m.twitch.tv") return null
+        val segment = uri.pathSegments?.singleOrNull() ?: return null
+        if (segment.lowercase() in TV_RESERVED_PATHS) return null
+        return segment.takeIf { TV_LOGIN_REGEX.matches(it) }
     }
 
     private fun handleIntent(intent: Intent?) {

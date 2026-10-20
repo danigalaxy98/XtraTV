@@ -4,10 +4,8 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
-import android.os.Build
 import android.text.format.DateFormat
 import android.text.format.Formatter
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -50,6 +48,8 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
@@ -59,20 +59,27 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import okhttp3.Request
-import java.io.ByteArrayOutputStream
+import java.io.File
+import java.net.URI
 import java.util.Date
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Instant
 
 /**
  * Update checks for the TV build. It uses the same GitHub "latest" release as the phone app, but:
  * - an APK only counts as new if it was uploaded after the installed version was installed
  *   (the phone screen that saves the first "last checked" date never runs on TV),
- * - the installer reports back to [TvActivity] instead of the phone screen.
+ * - the installer reports back to [TvInstallReceiver] instead of the phone screen.
  */
 object TvUpdater {
 
-    const val ACTION_INSTALL_RESULT = "com.github.andreyasadchy.xtra.TV_INSTALL_RESULT"
+    const val ACTION_INSTALL_STATUS = "com.github.andreyasadchy.xtra.TV_INSTALL_STATUS"
     private const val LAST_AUTO_CHECK = "tv_update_last_auto_check"
+    private const val PENDING_SESSION_ID = "tv_update_session_id"
+    private const val APK_FILE_NAME = "update.apk"
+
+    @Volatile
+    private var cachedSessionId = -1
 
     class UpdateInfo(
         val downloadUrl: String,
@@ -116,7 +123,7 @@ object TvUpdater {
 
     suspend fun check(context: Context): CheckResult = withContext(Dispatchers.IO) {
         val xtraModule = (context.applicationContext as XtraApp).xtraModule
-        val url = context.prefs().getString(C.UPDATE_URL, null)?.takeIf { it.isNotBlank() }
+        val url = context.prefs().getString(C.UPDATE_URL, null)?.takeIf { it.isNotBlank() && isAllowedReleaseUrl(it) }
             ?: return@withContext CheckResult.Failed
         try {
             val body = xtraModule.okHttpClient.value.newCall(Request.Builder().url(url).build()).execute().use { response ->
@@ -132,14 +139,14 @@ object TvUpdater {
             val uploadedAt = asset["updated_at"]?.jsonPrimitive?.contentOrNull
                 ?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() } ?: return@withContext CheckResult.Failed
             val downloadUrl = asset["browser_download_url"]?.jsonPrimitive?.contentOrNull
-                ?: return@withContext CheckResult.Failed
-            // "not now" saves the time in UPDATE_LAST_CHECKED so the same build isn't offered again
+                ?.takeIf { isAllowedDownloadUrl(it) } ?: return@withContext CheckResult.Failed
+            // "not now" saves the dismissed build's upload time in UPDATE_LAST_CHECKED so only newer builds are offered
             val baseline = maxOf(installedAt(context), context.tokenPrefs().getLong(C.UPDATE_LAST_CHECKED, 0))
             if (uploadedAt > baseline) {
                 CheckResult.Available(
                     UpdateInfo(
                         downloadUrl = downloadUrl,
-                        size = asset["size"]?.jsonPrimitive?.longOrNull,
+                        size = asset["size"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0 },
                         publishedAt = uploadedAt,
                         notes = release["body"]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotEmpty() },
                     )
@@ -152,84 +159,151 @@ object TvUpdater {
         }
     }
 
-    /** Downloads the APK reporting progress from 0 to 1 (or -1 when the size is unknown). */
-    suspend fun download(context: Context, url: String, onProgress: (Float) -> Unit): ByteArray? = withContext(Dispatchers.IO) {
+    private fun isAllowedReleaseUrl(url: String): Boolean {
+        val uri = try {
+            URI(url)
+        } catch (e: Exception) {
+            return false
+        }
+        return uri.scheme.equals("https", ignoreCase = true) &&
+                uri.host.equals("api.github.com", ignoreCase = true) &&
+                (uri.port == -1 || uri.port == 443) &&
+                uri.rawPath?.startsWith("/repos/") == true
+    }
+
+    private fun isAllowedDownloadUrl(url: String): Boolean {
+        val uri = try {
+            URI(url)
+        } catch (e: Exception) {
+            return false
+        }
+        return uri.scheme.equals("https", ignoreCase = true) &&
+                (uri.port == -1 || uri.port == 443) &&
+                isAllowedDownloadHost(uri.host)
+    }
+
+    private fun isAllowedDownloadHost(host: String?): Boolean {
+        val lower = host?.lowercase() ?: return false
+        return lower == "github.com" || lower.endsWith(".githubusercontent.com")
+    }
+
+    private fun apkFile(context: Context) = File(context.cacheDir, APK_FILE_NAME)
+
+    /**
+     * Downloads the APK to the cache dir reporting progress from 0 to 1 (or -1 when the size is unknown).
+     * Returns null on failure; the partial file is deleted on failure or cancellation.
+     */
+    suspend fun download(context: Context, info: UpdateInfo, onProgress: (Float) -> Unit): File? = withContext(Dispatchers.IO) {
         val xtraModule = (context.applicationContext as XtraApp).xtraModule
+        val file = apkFile(context)
+        file.delete()
         try {
-            xtraModule.okHttpClient.value.newCall(Request.Builder().url(url).build()).execute().use { response ->
-                if (!response.isSuccessful) return@withContext null
-                val total = response.body.contentLength()
-                val output = ByteArrayOutputStream(if (total > 0) total.toInt() else 32 * 1024 * 1024)
+            val complete = xtraModule.okHttpClient.value.newCall(Request.Builder().url(info.downloadUrl).build()).execute().use { response ->
+                // redirects go to GitHub's asset storage, check where we ended up
+                val finalUrl = response.request.url
+                if (!response.isSuccessful || !finalUrl.isHttps || !isAllowedDownloadHost(finalUrl.host)) return@use false
+                val contentLength = response.body.contentLength().takeIf { it > 0 }
+                if (info.size != null && contentLength != null && contentLength != info.size) return@use false
+                val total = info.size ?: contentLength
                 val buffer = ByteArray(64 * 1024)
                 var read = 0L
                 var lastReported = -1
                 response.body.byteStream().use { input ->
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        output.write(buffer, 0, count)
-                        read += count
-                        val percent = if (total > 0) (read * 100 / total).toInt() else -1
-                        if (percent != lastReported) {
-                            lastReported = percent
-                            withContext(Dispatchers.Main) { onProgress(if (total > 0) read.toFloat() / total else -1f) }
+                    file.outputStream().use { output ->
+                        while (true) {
+                            ensureActive()
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            read += count
+                            if (total != null && read > total) break
+                            output.write(buffer, 0, count)
+                            val percent = if (total != null) (read * 100 / total).toInt() else -1
+                            if (percent != lastReported) {
+                                lastReported = percent
+                                withContext(Dispatchers.Main) { onProgress(if (total != null) read.toFloat() / total else -1f) }
+                            }
                         }
                     }
                 }
-                output.toByteArray().takeIf { it.isNotEmpty() }
+                read > 0 && (total == null || read == total)
             }
+            if (complete) {
+                file
+            } else {
+                file.delete()
+                null
+            }
+        } catch (e: CancellationException) {
+            file.delete()
+            throw e
         } catch (e: Exception) {
+            file.delete()
             null
         }
     }
 
-    fun install(context: Context, apk: ByteArray): Boolean {
+    /** Streams the downloaded APK into an installer session and deletes it; the result goes to [TvInstallReceiver]. */
+    fun install(context: Context, apk: File): Boolean {
+        val installer = context.packageManager.packageInstaller
+        var sessionId = -1
         return try {
-            val installer = context.packageManager.packageInstaller
-            val sessionId = installer.createSession(PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL))
+            abandonPreviousSession(context)
+            sessionId = installer.createSession(PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL))
+            setPendingSessionId(context, sessionId)
             installer.openSession(sessionId).use { session ->
-                session.openWrite("package", 0, apk.size.toLong()).use { it.write(apk) }
+                session.openWrite("package", 0, apk.length()).use { output ->
+                    apk.inputStream().use { it.copyTo(output, 64 * 1024) }
+                    session.fsync(output)
+                }
                 session.commit(
-                    PendingIntent.getActivity(
+                    PendingIntent.getBroadcast(
                         context,
                         0,
-                        Intent(context, TvActivity::class.java).setAction(ACTION_INSTALL_RESULT),
+                        Intent(context, TvInstallReceiver::class.java).setAction(ACTION_INSTALL_STATUS),
+                        // the installer has to fill in the status extras
                         PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                     ).intentSender
                 )
             }
             true
         } catch (e: Exception) {
+            if (sessionId != -1) {
+                try {
+                    installer.abandonSession(sessionId)
+                } catch (e: Exception) {
+                }
+                clearPendingSessionId(context, sessionId)
+            }
             false
+        } finally {
+            apk.delete()
         }
     }
 
-    /** Called by [TvActivity] with the installer's answer: asks the user to confirm, or reports a failure. */
-    fun handleInstallResult(context: Context, intent: Intent) {
-        val extras = intent.extras ?: return
-        when (extras.getInt(PackageInstaller.EXTRA_STATUS, Int.MIN_VALUE)) {
-            PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                val confirm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    extras.getParcelable(Intent.EXTRA_INTENT, Intent::class.java)
-                } else {
-                    @Suppress("DEPRECATION")
-                    extras.getParcelable(Intent.EXTRA_INTENT)
-                }
-                confirm?.let {
-                    try {
-                        context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    } catch (e: Exception) {
-                        Toast.makeText(context, R.string.tv_not_available, Toast.LENGTH_LONG).show()
-                    }
-                }
-            }
-            PackageInstaller.STATUS_SUCCESS -> Unit
-            Int.MIN_VALUE -> Unit
-            else -> {
-                val message = extras.getString(PackageInstaller.EXTRA_STATUS_MESSAGE).orEmpty()
-                Toast.makeText(context, context.getString(R.string.tv_update_install_failed, message), Toast.LENGTH_LONG).show()
-            }
+    private fun abandonPreviousSession(context: Context) {
+        val previous = pendingSessionId(context)
+        if (previous == -1) return
+        try {
+            context.packageManager.packageInstaller.abandonSession(previous)
+        } catch (e: Exception) {
         }
+        clearPendingSessionId(context, previous)
+    }
+
+    /** Id of the last installer session created by [install], or -1. */
+    fun pendingSessionId(context: Context): Int {
+        return cachedSessionId.takeIf { it != -1 } ?: context.tokenPrefs().getInt(PENDING_SESSION_ID, -1)
+    }
+
+    private fun setPendingSessionId(context: Context, sessionId: Int) {
+        cachedSessionId = sessionId
+        context.tokenPrefs().edit { putInt(PENDING_SESSION_ID, sessionId) }
+    }
+
+    fun clearPendingSessionId(context: Context, sessionId: Int) {
+        if (pendingSessionId(context) != sessionId) return
+        cachedSessionId = -1
+        context.tokenPrefs().edit { remove(PENDING_SESSION_ID) }
     }
 }
 
@@ -251,6 +325,8 @@ class TvUpdateController(private val activity: ComponentActivity) {
     var state by mutableStateOf<TvUpdateState>(TvUpdateState.Hidden)
         private set
 
+    private var downloadJob: Job? = null
+
     fun check(manual: Boolean) {
         if (manual) state = TvUpdateState.Checking
         activity.lifecycleScope.launch {
@@ -264,11 +340,14 @@ class TvUpdateController(private val activity: ComponentActivity) {
 
     fun download(info: TvUpdater.UpdateInfo) {
         state = TvUpdateState.Downloading(0f)
-        activity.lifecycleScope.launch {
-            val apk = TvUpdater.download(activity, info.downloadUrl) { progress ->
+        downloadJob?.cancel()
+        downloadJob = activity.lifecycleScope.launch {
+            val apk = TvUpdater.download(activity, info) { progress ->
                 state = TvUpdateState.Downloading(progress)
             }
-            state = if (apk != null && TvUpdater.install(activity, apk)) {
+            // copying the APK into the installer session is disk I/O, keep it off the main thread
+            val installed = apk != null && withContext(Dispatchers.IO) { TvUpdater.install(activity, apk) }
+            state = if (installed) {
                 TvUpdateState.Installing
             } else {
                 TvUpdateState.Failed
@@ -276,11 +355,17 @@ class TvUpdateController(private val activity: ComponentActivity) {
         }
     }
 
-    /** Closing an available update means "not now": that build won't be offered again. */
+    /**
+     * Closing an available update means "not now": that build (and older ones) won't be offered again,
+     * newer uploads will. Closing a download cancels it.
+     */
     fun dismiss() {
-        if (state is TvUpdateState.Available) {
-            activity.tokenPrefs().edit { putLong(C.UPDATE_LAST_CHECKED, System.currentTimeMillis()) }
+        when (val current = state) {
+            is TvUpdateState.Available -> activity.tokenPrefs().edit { putLong(C.UPDATE_LAST_CHECKED, current.info.publishedAt) }
+            is TvUpdateState.Downloading -> downloadJob?.cancel()
+            else -> Unit
         }
+        downloadJob = null
         state = TvUpdateState.Hidden
     }
 }

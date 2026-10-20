@@ -71,6 +71,8 @@ private fun StreamGridItem(stream: Stream, actions: TvActions) {
     )
 }
 
+private fun streamKey(stream: Stream): Any = stream.id ?: stream.channelId ?: stream.channelLogin.orEmpty()
+
 @Composable
 fun FollowingScreen(viewModel: TvBrowseViewModel, loggedIn: Boolean, actions: TvActions) {
     val items = viewModel.followedStreams.collectAsLazyPagingItems()
@@ -82,6 +84,7 @@ fun FollowingScreen(viewModel: TvBrowseViewModel, loggedIn: Boolean, actions: Tv
             state = viewModel,
             columns = STREAM_COLUMNS,
             emptyText = stringResource(R.string.tv_empty_following),
+            key = ::streamKey,
             header = {
                 if (!loggedIn) {
                     fullWidthItem {
@@ -114,6 +117,7 @@ fun PopularScreen(viewModel: TvBrowseViewModel, actions: TvActions) {
             state = viewModel,
             columns = STREAM_COLUMNS,
             emptyText = stringResource(R.string.tv_empty_list),
+            key = ::streamKey,
         ) { stream ->
             StreamGridItem(stream, actions)
         }
@@ -131,6 +135,7 @@ fun CategoriesScreen(viewModel: TvBrowseViewModel, actions: TvActions) {
             state = viewModel,
             columns = GAME_COLUMNS,
             emptyText = stringResource(R.string.tv_empty_list),
+            key = { game -> game.id ?: game.slug ?: game.name.orEmpty() },
         ) { game ->
             GameCard(game) { actions.openGame(game.id, game.slug, game.name) }
         }
@@ -150,6 +155,7 @@ fun GameScreen(viewModel: TvBrowseViewModel, game: TvDestination.Game, actions: 
             state = viewModel,
             columns = STREAM_COLUMNS,
             emptyText = stringResource(R.string.tv_empty_list),
+            key = ::streamKey,
         ) { stream ->
             StreamGridItem(stream, actions)
         }
@@ -162,6 +168,7 @@ fun SearchScreen(viewModel: TvBrowseViewModel, actions: TvActions) {
     val channels = viewModel.searchChannels.collectAsLazyPagingItems()
     val streams = viewModel.searchStreams.collectAsLazyPagingItems()
     val keyboard = LocalSoftwareKeyboardController.current
+    val channelKeys = rememberUniqueItemKey(channels) { user -> user.id ?: user.login.orEmpty() }
     Column {
         ScreenTitle(stringResource(R.string.search))
         var focused by remember { mutableStateOf(false) }
@@ -205,6 +212,7 @@ fun SearchScreen(viewModel: TvBrowseViewModel, actions: TvActions) {
             state = viewModel,
             columns = STREAM_COLUMNS,
             emptyText = stringResource(if (text.isBlank()) R.string.tv_search_prompt else R.string.tv_no_results),
+            key = ::streamKey,
             header = {
                 if (channels.itemCount > 0) {
                     fullWidthItem {
@@ -214,7 +222,7 @@ fun SearchScreen(viewModel: TvBrowseViewModel, actions: TvActions) {
                                 horizontalArrangement = Arrangement.spacedBy(20.dp),
                                 contentPadding = PaddingValues(vertical = 8.dp),
                             ) {
-                                items(count = channels.itemCount) { index ->
+                                items(count = channels.itemCount, key = channelKeys) { index ->
                                     channels[index]?.let { user ->
                                         Box(Modifier.width(180.dp)) {
                                             ChannelCard(user) { actions.openChannel(user.id, user.login, user.name) }
@@ -311,6 +319,7 @@ fun ChannelScreen(viewModel: TvBrowseViewModel, channel: TvDestination.Channel, 
         state = viewModel,
         columns = STREAM_COLUMNS,
         emptyText = stringResource(R.string.tv_no_videos),
+        key = { video -> video.id.orEmpty() },
         header = {
             fullWidthItem {
                 Row(

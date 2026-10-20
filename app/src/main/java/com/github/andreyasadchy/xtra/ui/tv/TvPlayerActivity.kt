@@ -4,6 +4,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import android.os.IBinder
 import android.view.KeyEvent
@@ -76,6 +79,7 @@ import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.chat.ChatFragment
+import com.github.andreyasadchy.xtra.ui.main.MainViewModel
 import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.ui.player.PlayerViewModel
@@ -100,12 +104,20 @@ class TvPlayerActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityTvPlayerBinding
     private val viewModel: PlayerViewModel by viewModels { PlayerViewModel.PlayerViewModelFactory }
+    // shared with ChatFragment (BaseNetworkFragment uses activityViewModels)
+    private val mainViewModel: MainViewModel by viewModels { MainViewModel.MainViewModelFactory }
 
     private var service: ExoPlayerService? = null
     private var connection: ServiceConnection? = null
     private var closed = false
     private var infoLoaded = false
     private var consumedKeyCode = -1
+    // VOD: overlay opened by a seek, left/right keep seeking until OK/up/down
+    private var seekMode = false
+
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var defaultNetwork: Network? = null
+    private var networkLost = false
 
     private var isStream = true
     private var channelId: String? = null
@@ -319,9 +331,20 @@ class TvPlayerActivity : AppCompatActivity() {
     }
 
     private fun bindPlaybackService() {
+        if (closed || isFinishing) return
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                if (closed) return
+                if (closed) {
+                    (binder as? ExoPlayerService.ServiceBinder)?.getService()?.let { service ->
+                        service.stop()
+                        service.stopSelf()
+                    }
+                    try {
+                        unbindService(this)
+                    } catch (e: IllegalArgumentException) {
+                    }
+                    return
+                }
                 val service = (binder as ExoPlayerService.ServiceBinder).getService()
                 this@TvPlayerActivity.service = service
                 service.serviceListener = serviceListener
@@ -422,7 +445,16 @@ class TvPlayerActivity : AppCompatActivity() {
 
     private fun seek(forward: Boolean) {
         if (forward) service?.seekForward() else service?.seekBack()
+        seekMode = true
         showOverlay()
+    }
+
+    private fun play() {
+        val service = service ?: return
+        val player = service.secondaryPlayer ?: service.player ?: return
+        if (!player.playWhenReady || player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED) {
+            service.togglePause()
+        }
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -433,16 +465,49 @@ class TvPlayerActivity : AppCompatActivity() {
         }
         if (event.action == KeyEvent.ACTION_DOWN) {
             lastInteraction = System.currentTimeMillis()
+            if (!overlayVisible) seekMode = false
             when (keyCode) {
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_MEDIA_PLAY, KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                     if (event.repeatCount == 0) service?.togglePause()
                     consumedKeyCode = keyCode
                     return true
                 }
-                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_REWIND -> {
-                    if (!isStream) seek(keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
+                KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                    if (event.repeatCount == 0) play()
                     consumedKeyCode = keyCode
                     return true
+                }
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                    if (event.repeatCount == 0) service?.pause()
+                    consumedKeyCode = keyCode
+                    return true
+                }
+                KeyEvent.KEYCODE_MEDIA_STOP -> {
+                    if (event.repeatCount == 0) finish()
+                    consumedKeyCode = keyCode
+                    return true
+                }
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_REWIND,
+                KeyEvent.KEYCODE_MEDIA_NEXT, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                    if (!isStream) seek(keyCode == KeyEvent.KEYCODE_MEDIA_FAST_FORWARD || keyCode == KeyEvent.KEYCODE_MEDIA_NEXT)
+                    consumedKeyCode = keyCode
+                    return true
+                }
+            }
+            if (overlayVisible && seekMode && !qualityMenuVisible) {
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                        seek(keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
+                        consumedKeyCode = keyCode
+                        return true
+                    }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
+                    KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                        // leave seek mode, the next press moves through the buttons
+                        seekMode = false
+                        consumedKeyCode = keyCode
+                        return true
+                    }
                 }
             }
             if (!overlayVisible) {
@@ -647,6 +712,7 @@ class TvPlayerActivity : AppCompatActivity() {
                 .fillMaxHeight()
                 .width(360.dp)
                 .background(Color(0xF2151518))
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 32.dp),
         ) {
             Text(
@@ -697,7 +763,13 @@ class TvPlayerActivity : AppCompatActivity() {
         return "⏱ " + formatDuration(seconds)
     }
 
+    override fun onStart() {
+        super.onStart()
+        registerNetworkCallback()
+    }
+
     override fun onStop() {
+        unregisterNetworkCallback()
         super.onStop()
         // leaving the player (home button, opening the channel...) ends playback on TV
         if (!isChangingConfigurations) {
@@ -707,8 +779,112 @@ class TvPlayerActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        closePlayer()
+        if (isChangingConfigurations && !isFinishing) {
+            // recreated: keep playback running, the new instance binds again
+            detachPlayer()
+        } else {
+            closePlayer()
+        }
         super.onDestroy()
+    }
+
+    private fun detachPlayer() {
+        service?.let { service ->
+            service.player?.removeListener(playerListener)
+            service.secondaryPlayer?.removeListener(playerListener)
+            service.player?.clearVideoSurfaceView(binding.playerSurface)
+            service.secondaryPlayer?.clearVideoSurfaceView(binding.playerSurface)
+            if (service.serviceListener === serviceListener) {
+                service.serviceListener = null
+            }
+        }
+        connection?.let {
+            try {
+                unbindService(it)
+            } catch (e: IllegalArgumentException) {
+            }
+        }
+        connection = null
+        service = null
+    }
+
+    private fun isNetworkValidated(connectivityManager: ConnectivityManager, network: Network?): Boolean {
+        val networkCapabilities = network?.let { connectivityManager.getNetworkCapabilities(it) }
+        return networkCapabilities != null
+                && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun registerNetworkCallback() {
+        if (networkCallback != null) return
+        val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        networkLost = !isNetworkValidated(connectivityManager, connectivityManager.activeNetwork)
+        defaultNetwork = null
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                val validated = isNetworkValidated(connectivityManager, network)
+                runOnUiThread {
+                    if (networkCallback === this) {
+                        defaultNetwork = network
+                        if (validated) onNetworkRestored()
+                    }
+                }
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                if (networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                    runOnUiThread {
+                        if (networkCallback === this && network == defaultNetwork) onNetworkRestored()
+                    }
+                }
+            }
+
+            override fun onLost(network: Network) {
+                runOnUiThread {
+                    if (networkCallback === this && network == defaultNetwork) {
+                        defaultNetwork = null
+                        onNetworkLost()
+                    }
+                }
+            }
+        }
+        try {
+            connectivityManager.registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        } catch (e: RuntimeException) {
+        }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        try {
+            (getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(callback)
+        } catch (e: IllegalArgumentException) {
+        }
+    }
+
+    private fun onNetworkLost() {
+        if (networkLost) return
+        networkLost = true
+        if (chatAvailable) mainViewModel.isNetworkAvailable.value = false
+    }
+
+    private fun onNetworkRestored() {
+        if (!networkLost || closed) return
+        networkLost = false
+        if (chatAvailable) mainViewModel.isNetworkAvailable.value = true
+        val service = service ?: return
+        if (service.type == BasePlaybackService.STREAM) {
+            service.restartPlayer()
+        } else {
+            service.player?.let { player ->
+                if (player.playbackState == Player.STATE_IDLE && player.playerError != null) {
+                    player.prepare()
+                }
+            }
+        }
     }
 
     /** Raids: stop this stream first (so the playback service is released) and open the raided channel. */
@@ -736,6 +912,9 @@ class TvPlayerActivity : AppCompatActivity() {
                 unbindService(it)
             } catch (e: IllegalArgumentException) {
             }
+        }
+        if (connection != null && service == null) {
+            stopService(Intent(this, ExoPlayerService::class.java))
         }
         connection = null
         service?.stopSelf()

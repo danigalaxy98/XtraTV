@@ -14,6 +14,9 @@ object TvCrashLog {
 
     private const val FILE_NAME = "last_crash.txt"
 
+    // query strings can carry tokens or signed playlist parameters
+    private val URL_QUERY = Regex("""(https?://[^\s?]+)\?\S*""")
+
     @Volatile
     private var installed = false
 
@@ -30,7 +33,7 @@ object TvCrashLog {
                         append("Xtra ").append(BuildConfig.VERSION_NAME)
                         append(" · Android ").append(Build.VERSION.RELEASE)
                         append(" · ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n')
-                        append(throwable.stackTraceToString())
+                        append(redact(throwable.stackTraceToString()))
                     }
                 )
             } catch (e: Throwable) {
@@ -42,7 +45,7 @@ object TvCrashLog {
     fun read(context: Context): String? {
         val file = File(context.filesDir, FILE_NAME)
         return try {
-            file.takeIf { it.exists() }?.readText()?.let { summarize(it) }
+            file.takeIf { it.exists() }?.readText()?.let { summarize(redact(it)) }
         } catch (e: Exception) {
             null
         }
@@ -50,6 +53,14 @@ object TvCrashLog {
 
     fun clear(context: Context) {
         File(context.filesDir, FILE_NAME).delete()
+    }
+
+    private fun redact(text: String): String {
+        return try {
+            text.replace(URL_QUERY, "$1?…")
+        } catch (e: Throwable) {
+            text
+        }
     }
 
     /** Keeps the header, the first lines of the trace and every "Caused by" block, so it fits on screen. */

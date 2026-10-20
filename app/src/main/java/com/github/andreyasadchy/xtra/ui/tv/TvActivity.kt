@@ -48,6 +48,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.os.bundleOf
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -83,9 +84,28 @@ class TvActivity : ComponentActivity() {
     private var lastAutoRefresh = System.currentTimeMillis()
     private var loggedIn by mutableStateOf(false)
 
-    private val accountResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        // login state or settings may have changed, rebuild the lists
-        recreate()
+    private var sessionBeforeLaunch: String? = null
+    private var settingsLaunched = false
+
+    private val accountResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val before = sessionBeforeLaunch
+        sessionBeforeLaunch = null
+        loggedIn = viewModel.isLoggedIn()
+        if (before != null && before != viewModel.sessionKey()) {
+            // other account: drop every loaded list, shown or not
+            viewModel.reloadAll()
+        }
+        // the login screen only answers RESULT_OK on success, which the session check above already covers;
+        // settings answer RESULT_OK on any change (columns, language, ...) that needs a new composition
+        if (settingsLaunched && result.resultCode == RESULT_OK) {
+            recreate()
+        }
+    }
+
+    private fun launchForResult(target: Class<*>) {
+        sessionBeforeLaunch = viewModel.sessionKey()
+        settingsLaunched = target == TvSettingsActivity::class.java
+        accountResultLauncher.launch(Intent(this, target))
     }
 
     private var crashText by mutableStateOf<String?>(null)
@@ -106,6 +126,14 @@ class TvActivity : ComponentActivity() {
         crashText = TvCrashLog.read(this)
         loggedIn = viewModel.isLoggedIn()
         TvPrefs.ensureForkUpdateUrl(this)
+        savedInstanceState?.getBundle(STATE_BACK_STACK)?.let { saved ->
+            var index = 0
+            while (true) {
+                val entry = saved.getBundle(index.toString()) ?: break
+                entry.toDestination()?.let { backStack.add(it) }
+                index++
+            }
+        }
         if (backStack.isEmpty()) {
             backStack.add(
                 when (prefs().getString(TvPrefs.START_SCREEN, TvPrefs.START_AUTO)) {
@@ -141,6 +169,33 @@ class TvActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // keep the screen being shown across recreate() (settings changes) and process death
+        val saved = Bundle()
+        backStack.forEachIndexed { index, destination -> saved.putBundle(index.toString(), destination.toBundle()) }
+        outState.putBundle(STATE_BACK_STACK, saved)
+    }
+
+    private fun TvDestination.toBundle(): Bundle = when (this) {
+        TvDestination.Following -> bundleOf(KEY_TYPE to "following")
+        TvDestination.Popular -> bundleOf(KEY_TYPE to "popular")
+        TvDestination.Categories -> bundleOf(KEY_TYPE to "categories")
+        TvDestination.Search -> bundleOf(KEY_TYPE to "search")
+        is TvDestination.Game -> bundleOf(KEY_TYPE to "game", KEY_ID to id, KEY_SLUG to slug, KEY_NAME to name)
+        is TvDestination.Channel -> bundleOf(KEY_TYPE to "channel", KEY_ID to id, KEY_LOGIN to login, KEY_NAME to name)
+    }
+
+    private fun Bundle.toDestination(): TvDestination? = when (getString(KEY_TYPE)) {
+        "following" -> TvDestination.Following
+        "popular" -> TvDestination.Popular
+        "categories" -> TvDestination.Categories
+        "search" -> TvDestination.Search
+        "game" -> TvDestination.Game(getString(KEY_ID), getString(KEY_SLUG), getString(KEY_NAME))
+        "channel" -> TvDestination.Channel(getString(KEY_ID), getString(KEY_LOGIN), getString(KEY_NAME))
+        else -> null
+    }
+
     override fun onRestart() {
         super.onRestart()
         // back from the player or from the background
@@ -157,15 +212,14 @@ class TvActivity : ComponentActivity() {
 
     private fun handleIntent(intent: Intent?) {
         if (intent == null) return
-        if (intent.action == TvUpdater.ACTION_INSTALL_RESULT) {
-            TvUpdater.handleInstallResult(this, intent)
-            intent.action = null
-            return
-        }
         val channelId = intent.getStringExtra(EXTRA_CHANNEL_ID)
         val channelLogin = intent.getStringExtra(EXTRA_CHANNEL_LOGIN)
         if (channelId != null || channelLogin != null) {
-            backStack.add(TvDestination.Channel(channelId, channelLogin, intent.getStringExtra(EXTRA_CHANNEL_NAME)))
+            val destination = TvDestination.Channel(channelId, channelLogin, intent.getStringExtra(EXTRA_CHANNEL_NAME))
+            // a restored back stack may already end with this channel
+            if (backStack.lastOrNull() != destination) {
+                backStack.add(destination)
+            }
             intent.removeExtra(EXTRA_CHANNEL_ID)
             intent.removeExtra(EXTRA_CHANNEL_LOGIN)
         }
@@ -219,7 +273,7 @@ class TvActivity : ComponentActivity() {
                     playVideo = ::playVideo,
                     openChannel = { id, login, name -> navigate(TvDestination.Channel(id, login, name)) },
                     openGame = { id, slug, name -> navigate(TvDestination.Game(id, slug, name)) },
-                    login = { accountResultLauncher.launch(Intent(this@TvActivity, LoginActivity::class.java)) },
+                    login = { launchForResult(LoginActivity::class.java) },
                 )
                 CompositionLocalProvider(LocalRailFocus provides backStack.firstOrNull()?.let { railFocus[it] }) {
                     when (current) {
@@ -378,11 +432,11 @@ class TvActivity : ComponentActivity() {
             }
             if (!loggedIn) {
                 RailItem(R.drawable.baseline_person_black_24, R.string.log_in, expanded, false) {
-                    accountResultLauncher.launch(Intent(this@TvActivity, LoginActivity::class.java))
+                    launchForResult(LoginActivity::class.java)
                 }
             }
             RailItem(R.drawable.baseline_settings_black_24, R.string.settings, expanded, false) {
-                accountResultLauncher.launch(Intent(this@TvActivity, TvSettingsActivity::class.java))
+                launchForResult(TvSettingsActivity::class.java)
             }
         }
     }
@@ -436,6 +490,13 @@ class TvActivity : ComponentActivity() {
         const val EXTRA_CHANNEL_ID = "tv_channel_id"
         const val EXTRA_CHANNEL_LOGIN = "tv_channel_login"
         const val EXTRA_CHANNEL_NAME = "tv_channel_name"
+
+        private const val STATE_BACK_STACK = "tv_back_stack"
+        private const val KEY_TYPE = "type"
+        private const val KEY_ID = "id"
+        private const val KEY_SLUG = "slug"
+        private const val KEY_LOGIN = "login"
+        private const val KEY_NAME = "name"
 
         fun openChannel(context: Context, channelId: String?, channelLogin: String?, channelName: String?) {
             context.startActivity(
