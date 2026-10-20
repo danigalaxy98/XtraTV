@@ -39,24 +39,7 @@ jobs:
       run: ./gradlew assembleRelease
 
     - name: Check the TV manifest
-      run: |
-        apk=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
-        aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)aapt2"
-        badging=$("$aapt2" dump badging "$apk")
-        echo "$badging" | grep -E "^(application|launchable-activity|leanback-launchable-activity):"
-        # the TV launcher must show a single entry, the TV interface
-        if [ "$(echo "$badging" | grep -c '^leanback-launchable-activity:')" != 1 ] ||
-          ! echo "$badging" | grep -q "^leanback-launchable-activity: name='com.github.andreyasadchy.xtra.ui.tv.TvActivity'"; then
-          echo "::error::The TV launcher entry is not TvActivity alone"
-          exit 1
-        fi
-        manifest=$("$aapt2" dump xmltree --file AndroidManifest.xml "$apk")
-        for component in TvPlayerActivity TvSettingsActivity TvLoginActivity TvInstallReceiver TvInitProvider; do
-          if ! echo "$manifest" | grep -q "com.github.andreyasadchy.xtra.ui.tv.$component"; then
-            echo "::error::$component is missing from the merged manifest"
-            exit 1
-          fi
-        done
+      run: bash .github/scripts/check-tv-manifest.sh "$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
 
     - name: Upload a Build Artifact
       uses: actions/upload-artifact@v7
@@ -89,6 +72,18 @@ jobs:
       run: |
         git tag -f latest
         git push -f origin tag latest
+
+    - name: Keep the previous APK
+      # the APK being replaced stays in the "previous" pre-release, to go back by hand if a build is broken
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if gh release download latest --pattern '*.apk' --dir previous-apk 2> /dev/null; then
+          if ! gh release view previous > /dev/null 2>&1; then
+            gh release create previous --title "Previous" --notes "APK publicado antes del último (para volver atrás a mano)." --prerelease --latest=false
+          fi
+          gh release upload previous previous-apk/*.apk --clobber
+        fi
 
     - name: Publish release
       env:
