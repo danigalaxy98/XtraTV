@@ -20,7 +20,7 @@
     <application
         android:name=".XtraApp"
         android:allowBackup="true"
-        android:banner="@drawable/tv_banner"
+        android:banner="@mipmap/ic_launcher"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:enableOnBackInvokedCallback="true"
         android:fullBackupContent="@xml/backup_rules"
@@ -51,30 +51,6 @@
                 <data android:host="twitch.tv" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".ui.tv.TvActivity"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:exported="true"
-            android:launchMode="singleTask"
-            android:screenOrientation="landscape"
-            android:windowSoftInputMode="adjustNothing"
-            tools:ignore="DiscouragedApi">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-        </activity>
-        <activity
-            android:name=".ui.tv.TvPlayerActivity"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:exported="false"
-            android:screenOrientation="landscape"
-            tools:ignore="DiscouragedApi" />
-        <activity
-            android:name=".ui.tv.TvSettingsActivity"
-            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
-            android:exported="false"
-            android:windowSoftInputMode="adjustPan" />
         <activity android:name=".ui.settings.SettingsActivity" />
         <activity
             android:name=".ui.login.LoginActivity"
@@ -118,10 +94,6 @@
                 <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </receiver>
-
-        <receiver
-            android:name=".ui.tv.TvInstallReceiver"
-            android:exported="false" />
 
         <receiver
             android:name="android.app.admin.DeviceAdminReceiver"

@@ -45,9 +45,4 @@
         <item quantity="many">%s members</item>
         <item quantity="other">%s members</item>
     </plurals>
-    <plurals name="tv_updated_minutes">
-        <item quantity="one">Actualizado hace %d minuto</item>
-        <item quantity="many">Actualizado hace %d minutos</item>
-        <item quantity="other">Actualizado hace %d minutos</item>
-    </plurals>
 </resources>

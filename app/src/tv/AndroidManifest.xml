@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android TV interface (ui/tv). Merged over src/main/AndroidManifest.xml in every build type (see app/tv.gradle),
+  so the upstream manifest only loses the LEANBACK_LAUNCHER category of MainActivity: the TV launcher opens TvActivity.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <application
+        android:banner="@drawable/tv_banner"
+        tools:replace="android:banner">
+
+        <activity
+            android:name="com.github.andreyasadchy.xtra.ui.tv.TvActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:windowSoftInputMode="adjustNothing"
+            tools:ignore="DiscouragedApi">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name="com.github.andreyasadchy.xtra.ui.tv.TvPlayerActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            tools:ignore="DiscouragedApi" />
+        <activity
+            android:name="com.github.andreyasadchy.xtra.ui.tv.TvSettingsActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize"
+            android:exported="false"
+            android:windowSoftInputMode="adjustPan" />
+
+        <receiver
+            android:name="com.github.andreyasadchy.xtra.ui.tv.TvInstallReceiver"
+            android:exported="false" />
+
+        <provider
+            android:name="com.github.andreyasadchy.xtra.ui.tv.TvInitProvider"
+            android:authorities="${applicationId}.tvinit"
+            android:exported="false" />
+    </application>
+</manifest>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV interface (ui/tv). Kept apart from the upstream files to avoid merge conflicts. -->
+<resources>
+    <plurals name="tv_updated_minutes">
+        <item quantity="one">Actualizado hace %d minuto</item>
+        <item quantity="many">Actualizado hace %d minutos</item>
+        <item quantity="other">Actualizado hace %d minutos</item>
+    </plurals>
+</resources>

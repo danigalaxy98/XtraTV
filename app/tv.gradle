@@ -1,0 +1,35 @@
+// Android TV interface (ui/tv), applied from build.gradle.kts.
+// Everything the TV build needs on top of the upstream app lives here, so upstream updates merge cleanly.
+
+def catalog = project.extensions.getByName("versionCatalogs").named("libs")
+// libraries shared with the app follow the upstream catalog versions
+def catalogVersion = { String name -> catalog.findVersion(name).get().requiredVersion }
+
+def composeBomVersion = "2026.09.00"
+def tvMaterialVersion = "1.1.0"
+
+android {
+    buildFeatures {
+        compose = true
+    }
+    sourceSets {
+        // TV components, merged over src/main/AndroidManifest.xml in every build type
+        debug {
+            manifest.srcFile "src/tv/AndroidManifest.xml"
+        }
+        release {
+            manifest.srcFile "src/tv/AndroidManifest.xml"
+        }
+    }
+}
+
+dependencies {
+    implementation platform("androidx.compose:compose-bom:$composeBomVersion")
+    implementation "androidx.compose.ui:ui"
+    implementation "androidx.compose.foundation:foundation"
+    implementation "androidx.tv:tv-material:$tvMaterialVersion"
+    implementation "androidx.activity:activity-compose:${catalogVersion("activity")}"
+    implementation "androidx.lifecycle:lifecycle-viewmodel-compose:${catalogVersion("lifecycle")}"
+    implementation "androidx.paging:paging-compose:${catalogVersion("paging")}"
+    implementation "io.coil-kt.coil3:coil-compose:${catalogVersion("coil")}"
+}

@@ -47,7 +47,6 @@ android {
     }
     buildFeatures {
         buildConfig = true
-        compose = true
         viewBinding = true
     }
     androidResources {
@@ -118,15 +117,6 @@ dependencies {
     implementation(libs.glide.webpdecoder)
 
     implementation(libs.coroutines)
-
-    implementation(platform(libs.compose.bom))
-    implementation(libs.compose.ui)
-    implementation(libs.compose.foundation)
-    implementation(libs.tv.material)
-    implementation(libs.activity.compose)
-    implementation(libs.lifecycle.viewmodel.compose)
-    implementation(libs.paging.compose)
-    implementation(libs.coil.compose)
 }
 
 apollo {
@@ -144,3 +134,6 @@ File("${project.gradle.gradleUserHomeDir.absolutePath}/daemon/${project.gradle.g
         it.delete()
     }
 }
+
+// Android TV interface
+apply(from = "tv.gradle")

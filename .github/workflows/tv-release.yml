@@ -1,0 +1,108 @@
+# Builds and publishes the TV fork. The upstream android.yml is kept untouched and disabled in the repository settings.
+name: TV release
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+# actions are pinned by tag; pin them by commit SHA once the SHAs can be verified
+permissions:
+  contents: read
+
+concurrency:
+  group: release-latest
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        filter: blob:none
+        persist-credentials: false
+    - name: Setup Java
+      uses: actions/setup-java@v6
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        cache-provider: 'basic'
+    - name: Build with Gradle
+      run: ./gradlew assembleRelease
+
+    - name: Check the TV manifest
+      run: |
+        apk=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+        aapt2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n 1)aapt2"
+        badging=$("$aapt2" dump badging "$apk")
+        echo "$badging" | grep -E "^(application|launchable-activity|leanback-launchable-activity):"
+        # the TV launcher must show a single entry, the TV interface
+        if [ "$(echo "$badging" | grep -c '^leanback-launchable-activity:')" != 1 ] ||
+          ! echo "$badging" | grep -q "^leanback-launchable-activity: name='com.github.andreyasadchy.xtra.ui.tv.TvActivity'"; then
+          echo "::error::The TV launcher entry is not TvActivity alone"
+          exit 1
+        fi
+        manifest=$("$aapt2" dump xmltree --file AndroidManifest.xml "$apk")
+        for component in TvPlayerActivity TvSettingsActivity TvInstallReceiver TvInitProvider; do
+          if ! echo "$manifest" | grep -q "com.github.andreyasadchy.xtra.ui.tv.$component"; then
+            echo "::error::$component is missing from the merged manifest"
+            exit 1
+          fi
+        done
+
+    - name: Upload a Build Artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: apk
+        path: app/build/outputs/apk/release/*.apk
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        filter: blob:none
+
+    - name: Download the Build Artifact
+      uses: actions/download-artifact@v7
+      with:
+        name: apk
+        path: apk
+
+    - name: Generate release notes
+      run: git log refs/tags/latest..HEAD --oneline --decorate=no > notes.txt || git log -10 --oneline --decorate=no > notes.txt
+
+    - name: Update tag
+      run: |
+        git tag -f latest
+        git push -f origin tag latest
+
+    - name: Publish release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        shopt -s nullglob
+        apks=(apk/*.apk)
+        if [ ${#apks[@]} -eq 0 ]; then
+          echo "No APK found" >&2
+          exit 1
+        fi
+        if gh release view latest > /dev/null 2>&1; then
+          gh release edit latest --title "Latest" --notes-file notes.txt --latest=true
+          gh release upload latest "${apks[@]}" --clobber
+        else
+          gh release create latest --title "Latest" --notes-file notes.txt --latest=true "${apks[@]}"
+        fi
