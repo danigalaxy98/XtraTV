@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.tv
 
+import android.app.Application
 import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
@@ -12,7 +13,10 @@ import android.net.Uri
 class TvInitProvider : ContentProvider() {
 
     override fun onCreate(): Boolean {
-        context?.let { TvPrefs.ensureForkUpdateUrl(it) }
+        context?.let { context ->
+            TvPrefs.ensureForkUpdateUrl(context)
+            (context.applicationContext as? Application)?.let { TvHooks.install(it) }
+        }
         return true
     }
 

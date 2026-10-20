@@ -58,7 +58,6 @@ import androidx.tv.material3.Text
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -273,7 +272,7 @@ class TvActivity : ComponentActivity() {
                     playVideo = ::playVideo,
                     openChannel = { id, login, name -> navigate(TvDestination.Channel(id, login, name)) },
                     openGame = { id, slug, name -> navigate(TvDestination.Game(id, slug, name)) },
-                    login = { launchForResult(LoginActivity::class.java) },
+                    login = { launchForResult(TvLoginActivity::class.java) },
                 )
                 CompositionLocalProvider(LocalRailFocus provides backStack.firstOrNull()?.let { railFocus[it] }) {
                     when (current) {
@@ -432,7 +431,7 @@ class TvActivity : ComponentActivity() {
             }
             if (!loggedIn) {
                 RailItem(R.drawable.baseline_person_black_24, R.string.log_in, expanded, false) {
-                    launchForResult(LoginActivity::class.java)
+                    launchForResult(TvLoginActivity::class.java)
                 }
             }
             RailItem(R.drawable.baseline_settings_black_24, R.string.settings, expanded, false) {

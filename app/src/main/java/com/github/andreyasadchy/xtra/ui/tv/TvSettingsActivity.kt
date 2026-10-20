@@ -84,7 +84,6 @@ import androidx.preference.TwoStatePreference
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.ui.login.LoginActivity
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel
 import com.github.andreyasadchy.xtra.util.C
@@ -229,7 +228,7 @@ class TvSettingsActivity : AppCompatActivity() {
                         markChanged()
                     })
                 } else {
-                    loginLauncher.launch(Intent(this, LoginActivity::class.java))
+                    loginLauncher.launch(Intent(this, TvLoginActivity::class.java))
                 }
             }
             preference is TwoStatePreference -> setSwitch(preference, !preference.isChecked)
@@ -280,7 +279,7 @@ class TvSettingsActivity : AppCompatActivity() {
 
     private fun openClassic(destination: Int) {
         setResult(RESULT_OK)
-        startActivity(Intent(this, SettingsActivity::class.java).putExtra(SettingsActivity.EXTRA_DESTINATION, destination))
+        startActivity(Intent(this, SettingsActivity::class.java).putExtra(TvHooks.EXTRA_CLASSIC_DESTINATION, destination))
     }
 
     private fun tryStart(intent: Intent) {

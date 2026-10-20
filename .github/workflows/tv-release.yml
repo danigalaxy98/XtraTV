@@ -51,7 +51,7 @@ jobs:
           exit 1
         fi
         manifest=$("$aapt2" dump xmltree --file AndroidManifest.xml "$apk")
-        for component in TvPlayerActivity TvSettingsActivity TvInstallReceiver TvInitProvider; do
+        for component in TvPlayerActivity TvSettingsActivity TvLoginActivity TvInstallReceiver TvInitProvider; do
           if ! echo "$manifest" | grep -q "com.github.andreyasadchy.xtra.ui.tv.$component"; then
             echo "::error::$component is missing from the merged manifest"
             exit 1

@@ -23,7 +23,6 @@ import android.os.Bundle
 import android.os.PowerManager
 import android.os.ext.SdkExtensions
 import android.text.format.Formatter
-import android.view.KeyEvent
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
@@ -89,9 +88,7 @@ import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
-import com.github.andreyasadchy.xtra.ui.tv.TvActivity
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TvUtils
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -117,14 +114,6 @@ class MainActivity : AppCompatActivity() {
         const val INTENT_OPEN_PLAYER = "com.github.andreyasadchy.xtra.OPEN_PLAYER"
         const val INTENT_START_AUDIO_ONLY = "com.github.andreyasadchy.xtra.START_AUDIO_ONLY"
         const val INTENT_PLAY_PAUSE_PLAYER = "com.github.andreyasadchy.xtra.PLAY_PAUSE_PLAYER"
-
-        private val TV_LOGIN_REGEX = Regex("^[A-Za-z0-9_]{1,25}$")
-        private val TV_RESERVED_PATHS = setOf(
-            "videos", "clip", "clips", "directory", "search", "settings", "team", "downloads", "drops",
-            "inventory", "wallet", "subscriptions", "following", "friends", "messages", "login", "signup",
-            "logout", "jobs", "turbo", "prime", "store", "p", "u", "popout", "embed", "moderator",
-            "broadcast", "dashboard", "bits", "privacy", "legal", "activate", "collections",
-        )
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -145,14 +134,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null && TvUtils.isTv(this)) {
-            tvChannelLogin(intent)?.let { login ->
-                // channel links open in the TV interface, other links keep the phone screens
-                TvActivity.openChannel(this, null, login, null)
-                finish()
-                return
-            }
-        }
+        if (com.github.andreyasadchy.xtra.ui.tv.TvHooks.openTvInterface(this)) return
         prefs = prefs()
         migrateSettings()
         if (tokenPrefs().getLong(C.UPDATE_LAST_CHECKED, 0) <= 0L) {
@@ -172,9 +154,6 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        if (TvUtils.isTv(this)) {
-            TvUtils.installFocusHighlight(this)
-        }
         setNavBarColor(resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
         val ignoreCutouts = prefs.getBoolean(C.UI_DRAW_BEHIND_CUTOUTS, false)
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
@@ -653,27 +632,6 @@ class MainActivity : AppCompatActivity() {
         restorePlayerFragment()
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (TvUtils.isTv(this) && (playerFragment as? PlayerFragment)?.handleTvKeyEvent(event) == true) {
-            return true
-        }
-        return super.dispatchKeyEvent(event)
-    }
-
-    /**
-     * On TV, stops D-pad focus from moving to the lists behind the fullscreen player.
-     */
-    fun setContentFocusBlocked(blocked: Boolean) {
-        if (!TvUtils.isTv(this)) return
-        val focusability = if (blocked) ViewGroup.FOCUS_BLOCK_DESCENDANTS else ViewGroup.FOCUS_AFTER_DESCENDANTS
-        binding.navHostFragment.descendantFocusability = focusability
-        binding.navBarContainer.descendantFocusability = focusability
-        if (blocked) {
-            binding.navHostFragment.findFocus()?.clearFocus()
-            binding.navBarContainer.findFocus()?.clearFocus()
-        }
-    }
-
     override fun onDestroy() {
         networkCallback?.let {
             val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -715,17 +673,6 @@ class MainActivity : AppCompatActivity() {
                 //device doesn't support PIP
             }
         }
-    }
-
-    /** Login of a plain channel link (twitch.tv/<login>), or null for any other link. */
-    private fun tvChannelLogin(intent: Intent?): String? {
-        if (intent?.action != Intent.ACTION_VIEW) return null
-        val uri = intent.data ?: return null
-        val host = uri.host?.lowercase() ?: return null
-        if (host != "twitch.tv" && host != "www.twitch.tv" && host != "m.twitch.tv") return null
-        val segment = uri.pathSegments?.singleOrNull() ?: return null
-        if (segment.lowercase() in TV_RESERVED_PATHS) return null
-        return segment.takeIf { TV_LOGIN_REGEX.matches(it) }
     }
 
     private fun handleIntent(intent: Intent?) {
@@ -1066,7 +1013,6 @@ class MainActivity : AppCompatActivity() {
             .remove(supportFragmentManager.findFragmentById(R.id.playerContainer)!!)
             .commit()
         playerFragment = null
-        setContentFocusBlocked(false)
         viewModel.isPlayerOpened = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
             setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())

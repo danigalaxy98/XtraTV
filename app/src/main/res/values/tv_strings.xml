@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android TV interface (ui/tv). Kept apart from the upstream files to avoid merge conflicts. -->
 <resources>
-    <string name="tv_login_instructions">On your phone or computer go to twitch.tv/activate, enter this code and press \"Authorize\". Then press \"Next\".</string>
+    <string name="tv_login_instructions">On your phone or computer go to twitch.tv/activate, enter this code and press \"Authorize\". The TV will log in by itself.</string>
+    <string name="tv_login_waiting">Waiting for the authorization…</string>
+    <string name="tv_login_expired">The code has expired. Ask for a new one.</string>
+    <string name="tv_login_error">Couldn\'t log in. Check the connection and ask for a new code.</string>
+    <string name="tv_login_new_code">New code</string>
     <string name="tv_categories">Categories</string>
     <string name="tv_updated_now">Updated just now</string>
     <string name="tv_error_loading">Couldn\'t load this list</string>

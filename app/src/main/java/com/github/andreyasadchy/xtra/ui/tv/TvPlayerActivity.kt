@@ -63,7 +63,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Player
@@ -79,6 +82,7 @@ import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.chat.ChatFragment
+import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel
 import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
@@ -110,6 +114,7 @@ class TvPlayerActivity : AppCompatActivity() {
     private var service: ExoPlayerService? = null
     private var connection: ServiceConnection? = null
     private var closed = false
+    private var handledRaid: String? = null
     private var infoLoaded = false
     private var consumedKeyCode = -1
     // VOD: overlay opened by a seek, left/right keep seeking until OK/up/down
@@ -208,6 +213,8 @@ class TvPlayerActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         applyTheme()
+        // before super.onCreate, so a chat restored after a recreation is watched too
+        watchRaids()
         super.onCreate(savedInstanceState)
         TvCrashLog.install(this)
         binding = ActivityTvPlayerBinding.inflate(layoutInflater)
@@ -950,8 +957,41 @@ class TvPlayerActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Raids: the chat only switches channel inside the phone player, so on TV the raid is read from the
+     * chat's view model and followed here when the countdown ends.
+     */
+    private fun watchRaids() {
+        supportFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
+            override fun onFragmentCreated(fm: FragmentManager, f: Fragment, savedInstanceState: Bundle?) {
+                if (f !is ChatFragment) return
+                val chatViewModel = ViewModelProvider(f, ChatViewModel.ChatViewModelFactory)[ChatViewModel::class.java]
+                f.lifecycleScope.launch {
+                    f.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        chatViewModel.raid.collect { raid ->
+                            if (raid != null && raid.openStream && !closed && prefs().getBoolean(C.CHAT_RAIDS_AUTO_SWITCH, true)) {
+                                val key = raid.raidId ?: raid.targetId ?: raid.targetLogin
+                                if (key != handledRaid) {
+                                    handledRaid = key
+                                    switchToStream(
+                                        Stream(
+                                            channelId = raid.targetId,
+                                            channelLogin = raid.targetLogin,
+                                            channelName = raid.targetName,
+                                            channelImageURL = raid.targetImageURL,
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }, false)
+    }
+
     /** Raids: stop this stream first (so the playback service is released) and open the raided channel. */
-    fun switchToStream(stream: Stream) {
+    private fun switchToStream(stream: Stream) {
         closePlayer(deleteStates = false)
         startStream(this, stream)
         finish()

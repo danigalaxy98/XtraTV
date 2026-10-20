@@ -1,4 +1,4 @@
-package com.github.andreyasadchy.xtra.util
+package com.github.andreyasadchy.xtra.ui.tv
 
 import android.app.Activity
 import android.app.UiModeManager

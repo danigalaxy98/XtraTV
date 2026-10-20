@@ -21,7 +21,6 @@ import android.text.format.DateUtils
 import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.RoundedCorner
@@ -32,7 +31,6 @@ import android.view.ViewGroup
 import android.view.ViewPropertyAnimator
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
-import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -74,7 +72,6 @@ import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.PlayerViewModel.Companion.PlayerViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TvUtils
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.isKeyboardShown
@@ -131,19 +128,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
         override fun handleOnBackPressed() {
-            if (TvUtils.isTv(requireContext())) {
-                if (_binding?.playerControls?.root?.isVisible == true && controllerHideOnTouch) {
-                    hideController()
-                } else {
-                    minimizeOrClose()
-                }
-            } else {
-                minimize()
-            }
+            minimize()
         }
     }
-
-    private var tvConsumedKeyCode = -1
 
     open fun getCurrentPosition(): Long? = null
     open fun getCurrentSpeed(): Float? = null
@@ -249,8 +236,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             } else {
                 disableBackground()
             }
-            (activity as? MainActivity)?.setContentFocusBlocked(isMaximized)
-            isChatOpen =requireContext().prefs().getBoolean(C.KEY_CHAT_OPENED, true) && !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)
+            isChatOpen = requireContext().prefs().getBoolean(C.KEY_CHAT_OPENED, true) && !requireContext().prefs().getBoolean(C.CHAT_DISABLE, false)
             chatWidthLandscape = requireContext().prefs().getInt(C.LANDSCAPE_CHAT_WIDTH, 0)
             resizeMode = requireContext().prefs().getInt(C.ASPECT_RATIO_LANDSCAPE, AspectRatioFrameLayout.RESIZE_MODE_FIT)
             aspectRatioFrameLayout.setAspectRatio(16f / 9f)
@@ -717,7 +703,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 channelName = playbackService?.channelName,
                             )
                         )
-                        minimizeOrClose()
+                        minimize()
                     }
                 }
                 val titleText = playbackService?.title
@@ -745,12 +731,12 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 )
                             }
                         )
-                        minimizeOrClose()
+                        minimize()
                     }
                 }
-                if (requireContext().prefs().getBoolean(C.PLAYER_MINIMIZE, true) && !TvUtils.isTv(requireContext())) {
+                if (requireContext().prefs().getBoolean(C.PLAYER_MINIMIZE, true)) {
                     minimize.visibility = View.VISIBLE
-                    minimize.setOnClickListener { minimizeOrClose() }
+                    minimize.setOnClickListener { minimize() }
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_VOLUME_BUTTON, true)) {
                     volume.visibility = View.VISIBLE
@@ -1585,7 +1571,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                             )
                         }
                     )
-                    minimizeOrClose()
+                    minimize()
                 }
             } else {
                 text = null
@@ -2032,102 +2018,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         binding.playerControls.root.removeCallbacks(controllerHideAction)
     }
 
-    /**
-     * On TV a minimized player can't be reached with the D-pad, so the player is closed instead.
-     */
-    fun minimizeOrClose() {
-        if (TvUtils.isTv(requireContext())) {
-            close()
-            (activity as? MainActivity)?.closePlayer()
-        } else {
-            minimize()
-        }
-    }
-
-    /**
-     * D-pad handling for TV, called from MainActivity.dispatchKeyEvent.
-     * While the controls are hidden: OK/up/down show them, left/right seek in videos, menu toggles chat.
-     * While the controls are visible the keys move focus normally and only reset the auto-hide timer.
-     */
-    fun handleTvKeyEvent(event: KeyEvent): Boolean {
-        if (_binding == null || !isMaximized || !useController) return false
-        val keyCode = event.keyCode
-        if (event.action == KeyEvent.ACTION_UP && keyCode == tvConsumedKeyCode) {
-            tvConsumedKeyCode = -1
-            return true
-        }
-        if (event.action != KeyEvent.ACTION_DOWN) return false
-        // let the chat input keep its arrow keys
-        val isTyping = requireActivity().currentFocus is EditText
-        val isVideo = playbackService?.type != BasePlaybackService.STREAM
-        val controlsVisible = binding.playerControls.root.isVisible
-        when (keyCode) {
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER,
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                if (controlsVisible || isTyping) {
-                    if (controlsVisible) {
-                        showController()
-                    }
-                    return false
-                }
-                if (event.repeatCount == 0 || isVideo) {
-                    when {
-                        keyCode == KeyEvent.KEYCODE_DPAD_LEFT && isVideo -> {
-                            rewind()
-                            showController()
-                            updateProgress()
-                        }
-                        keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && isVideo -> {
-                            fastForward()
-                            showController()
-                            updateProgress()
-                        }
-                        else -> showControllerAndFocus()
-                    }
-                }
-                tvConsumedKeyCode = keyCode
-                return true
-            }
-            KeyEvent.KEYCODE_MENU -> {
-                if (event.repeatCount == 0) {
-                    if (binding.chatLayout.isVisible) {
-                        hideChat()
-                    } else {
-                        showChat()
-                    }
-                }
-                tvConsumedKeyCode = keyCode
-                return true
-            }
-            KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> {
-                if (!isVideo) return false
-                if (keyCode == KeyEvent.KEYCODE_MEDIA_REWIND) rewind() else fastForward()
-                showController()
-                updateProgress()
-                tvConsumedKeyCode = keyCode
-                return true
-            }
-        }
-        return false
-    }
-
-    private fun showControllerAndFocus() {
-        showController()
-        updateProgress()
-        // the controls become visible when the show animation starts, which is posted to the next frame
-        binding.playerControls.root.postOnAnimation {
-            if (view != null) {
-                binding.playerControls.playPause.takeIf { it.isVisible }?.requestFocus()
-                    ?: binding.playerControls.root.requestFocus()
-            }
-        }
-    }
-
     fun minimize() {
         with(binding) {
             isMaximized = false
-            (activity as? MainActivity)?.setContentFocusBlocked(false)
             if (playbackService?.type == BasePlaybackService.STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(false)
             }
@@ -2197,7 +2090,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     fun maximize() {
         with(binding) {
             isMaximized = true
-            (activity as? MainActivity)?.setContentFocusBlocked(true)
             requireActivity().onBackPressedDispatcher.addCallback(this@PlayerFragment, backPressedCallback)
             if (playbackService?.type == BasePlaybackService.STREAM && chatFragment?.emoteMenuIsVisible() == true) {
                 chatFragment?.toggleBackPressedCallback(true)

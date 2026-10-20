@@ -47,7 +47,6 @@ import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewMod
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
-import com.github.andreyasadchy.xtra.ui.tv.TvPlayerActivity
 import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -423,18 +422,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 if (raid != null) {
                                     if (!viewModel.raidClosed) {
                                         if (raid.openStream) {
-                                            if (requireContext().prefs().getBoolean(C.CHAT_RAIDS_AUTO_SWITCH, true)) {
-                                                val raidStream = Stream(
-                                                    channelId = raid.targetId,
-                                                    channelLogin = raid.targetLogin,
-                                                    channelName = raid.targetName,
-                                                    channelImageURL = raid.targetImageURL,
+                                            if (requireContext().prefs().getBoolean(C.CHAT_RAIDS_AUTO_SWITCH, true) && parentFragment is PlayerFragment) {
+                                                (requireActivity() as? MainActivity)?.startStream(
+                                                    Stream(
+                                                        channelId = raid.targetId,
+                                                        channelLogin = raid.targetLogin,
+                                                        channelName = raid.targetName,
+                                                        channelImageURL = raid.targetImageURL,
+                                                    )
                                                 )
-                                                if (parentFragment is PlayerFragment) {
-                                                    (requireActivity() as? MainActivity)?.startStream(raidStream)
-                                                } else {
-                                                    (requireActivity() as? TvPlayerActivity)?.switchToStream(raidStream)
-                                                }
                                             }
                                             raidLayout.visibility = View.GONE
                                             viewModel.raidClosed = true
@@ -1058,7 +1054,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 channelImage = channelImage
             )
         )
-        (parentFragment as? PlayerFragment)?.minimizeOrClose()
+        (parentFragment as? PlayerFragment)?.minimize()
     }
 
     override fun onTranslateMessageClicked(chatMessage: ChatMessage, languageTag: String?) {

@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Android TV interface (ui/tv). Kept apart from the upstream files to avoid merge conflicts. -->
 <resources>
-    <string name="tv_login_instructions">En tu móvil u ordenador ve a twitch.tv/activate, introduce este código y pulsa \"Autorizar\". Después pulsa \"Siguiente\".</string>
+    <string name="tv_login_instructions">En tu móvil u ordenador ve a twitch.tv/activate, introduce este código y pulsa \"Autorizar\". La TV iniciará sesión sola.</string>
+    <string name="tv_login_waiting">Esperando la autorización…</string>
+    <string name="tv_login_expired">El código ha caducado. Pide uno nuevo.</string>
+    <string name="tv_login_error">No se pudo iniciar sesión. Comprueba la conexión y pide un código nuevo.</string>
+    <string name="tv_login_new_code">Nuevo código</string>
     <string name="tv_categories">Categorías</string>
     <string name="tv_updated_now">Actualizado ahora</string>
     <string name="tv_error_loading">No se pudo cargar la lista</string>
