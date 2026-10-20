@@ -62,7 +62,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
-import androidx.paging.compose.itemKey
 import androidx.tv.material3.Icon
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Surface
@@ -329,6 +328,8 @@ fun <T : Any> PagedGrid(
 /**
  * Stable item keys for lazy lists of paging data. Twitch can return the same item on two pages,
  * so a repeated key gets the index appended instead of crashing the lazy layout.
+ * Keys come from the snapshot the list was composed with: the live list can already be empty
+ * (a reload) when the layout asks for them, and paging's itemKey then throws IndexOutOfBoundsException.
  */
 @Composable
 fun <T : Any> rememberUniqueItemKey(pagingItems: LazyPagingItems<T>, key: ((T) -> Any)?): ((Int) -> Any)? {
@@ -336,12 +337,11 @@ fun <T : Any> rememberUniqueItemKey(pagingItems: LazyPagingItems<T>, key: ((T) -
     // a new snapshot (reload or new page) starts a new key assignment
     val snapshot = pagingItems.itemSnapshotList
     return remember(snapshot, key) {
-        val baseKey = pagingItems.itemKey(key)
         val assigned = HashMap<Int, Any>()
         val owners = HashMap<Any, Int>()
         val uniqueKey: (Int) -> Any = { index ->
             assigned.getOrPut(index) {
-                val base = baseKey(index)
+                val base = snapshot.getOrNull(index)?.let(key) ?: "placeholder@$index"
                 val owner = owners.getOrPut(base) { index }
                 if (owner == index) base else "$base@$index"
             }

@@ -122,6 +122,7 @@ jobs:
         api-level: 30
         target: android-tv
         arch: x86
+        profile: tv_1080p
         disable-animations: true
         script: bash .github/scripts/tv-smoke-test.sh "$APK" || { echo "La prueba en el emulador de Android TV ha fallado (cierre, ANR o pantalla equivocada)." > reason.txt; exit 1; }
 
