@@ -30,14 +30,11 @@ class TvInstallReceiver : BroadcastReceiver() {
                     // the app is in the foreground while installing; on newer Android versions this
                     // start can be blocked if the user already left the app
                     try {
-                        context.startActivity(
-                            confirm
-                                .removeFlags(
-                                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
-                                            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
-                                )
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        confirm.removeFlags(
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
                         )
+                        context.startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                     } catch (e: Exception) {
                         Toast.makeText(context, R.string.tv_not_available, Toast.LENGTH_LONG).show()
                     }
