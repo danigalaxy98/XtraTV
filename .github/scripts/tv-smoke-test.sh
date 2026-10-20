@@ -47,18 +47,24 @@ check "start"
 top_activity | grep -q "ui.tv.TvActivity" || fail "the launcher did not open TvActivity: $(top_activity)"
 
 echo "== First stream"
+# nothing is focused at start: the first key focuses the screen, the second one reaches a card
+key DPAD_RIGHT
 key DPAD_RIGHT
 key DPAD_CENTER
 sleep 25
 check "player"
-echo "screen: $(top_activity)"
-
-echo "== Overlay and back"
-key DPAD_CENTER
-key BACK
-key BACK
-sleep 5
-check "leaving the player"
+if top_activity | grep -q "ui.tv.TvPlayerActivity"; then
+  echo "== Overlay and back"
+  key DPAD_CENTER
+  key BACK
+  key BACK
+  sleep 5
+  check "leaving the player"
+  top_activity | grep -q "ui.tv.TvActivity" || fail "Back did not return to the TV interface: $(top_activity)"
+else
+  # an empty list (Twitch not reachable from the emulator) leaves no card to open
+  echo "::warning::The player was not reached (screen: $(top_activity)); only the browsing screens were tested"
+fi
 
 echo "== Channel link through MainActivity"
 adb shell am start -W -a android.intent.action.VIEW -d "https://www.twitch.tv/twitch" -n "$pkg/.ui.main.MainActivity"
