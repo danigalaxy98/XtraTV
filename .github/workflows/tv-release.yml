@@ -4,6 +4,12 @@ name: TV release
 on:
   push:
     branches: [ master ]
+    # pushes that only touch CI or documentation don't change the app: no new release for the TV to offer
+    paths-ignore:
+      - '.github/**'
+      - '**.md'
+      - 'fastlane/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 # actions are pinned by tag; pin them by commit SHA once the SHAs can be verified
