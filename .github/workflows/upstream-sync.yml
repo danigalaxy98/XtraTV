@@ -1,17 +1,28 @@
-# Weekly merge of the original Xtra (crackededed/Xtra) into the TV fork.
-# It publishes only when the merge has no conflicts, the APK builds, the TV manifest is right and the smoke test on an
-# Android TV emulator passes. Otherwise nothing is pushed and the run (and an issue, when issues are enabled) says why.
+# Daily merge of the original Xtra (crackededed/Xtra) into the TV fork.
+#
+# The original has no version tags (its release `latest` moves with every commit), so the merge goes up to the newest
+# upstream commit that is at least SOAK_DAYS old and whose own CI did not fail: quick fixes and reverts of the original
+# land before we take it. If nothing new qualifies, nothing happens.
+#
+# It publishes only when the merge applies, the TV contract and boundary checks pass, the APK builds, the TV manifest is
+# right and the smoke test on an Android TV emulator passes. Otherwise master stays untouched; the merge is pushed to a
+# `sync/upstream-<sha>` branch and an issue lists the compiler errors, so it can be repaired there (usually only in
+# app/src/main/java/.../ui/tv/upstream/) and merged by hand.
 name: Upstream sync
 
 on:
   schedule:
-    - cron: '0 6 * * 1' # Mondays, 06:00 UTC
+    - cron: '0 6 * * *' # every day, 06:00 UTC
   workflow_dispatch:
     inputs:
       force_test:
         description: Build and run the smoke test even if upstream has nothing new (nothing is pushed then)
         type: boolean
         default: false
+      soak_days:
+        description: Only take upstream commits at least this old (0 = the newest one)
+        type: string
+        default: '3'
 
 permissions:
   contents: read
@@ -22,7 +33,9 @@ concurrency:
 
 env:
   UPSTREAM: https://github.com/crackededed/Xtra.git
+  UPSTREAM_REPO: crackededed/Xtra
   UPSTREAM_BRANCH: master
+  SOAK_DAYS: ${{ inputs.soak_days || '3' }}
   APK: app/build/outputs/apk/release/app-release.apk
 
 jobs:
@@ -41,31 +54,68 @@ jobs:
         # a token with the workflow permission is only needed when upstream changes .github/workflows
         token: ${{ secrets.SYNC_TOKEN || github.token }}
 
+    # git remembers how a conflict was solved and solves the same one again
+    - name: Restore the conflict resolutions
+      uses: actions/cache@v4
+      with:
+        path: .git/rr-cache
+        key: rerere-${{ github.run_id }}
+        restore-keys: rerere-
+
     - name: Merge upstream
       id: merge
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "41898732+github-actions[bot]@users.noreply.github.com"
+        git config rerere.enabled true
         git remote add upstream "$UPSTREAM"
         git fetch --no-tags upstream "$UPSTREAM_BRANCH"
-        upstream_head=$(git rev-parse FETCH_HEAD)
-        echo "upstream_head=$upstream_head" >> "$GITHUB_OUTPUT"
-        if git merge-base --is-ancestor "$upstream_head" HEAD; then
-          echo "Already up to date with upstream ${upstream_head:0:8}" | tee -a "$GITHUB_STEP_SUMMARY"
+        tip=$(git rev-parse FETCH_HEAD)
+
+        # newest upstream commit that is old enough and whose CI did not fail
+        target=""
+        for sha in $(git rev-list -n 60 --before="$SOAK_DAYS days ago" "$tip"); do
+          if git merge-base --is-ancestor "$sha" HEAD; then
+            break # everything older is already merged
+          fi
+          state=$(gh api "repos/$UPSTREAM_REPO/commits/$sha/check-runs" --jq '[.check_runs[] | select(.status == "completed")] | if length == 0 then "none" elif all(.conclusion == "success" or .conclusion == "skipped") then "success" else "failure" end' 2>/dev/null || echo unknown)
+          echo "upstream ${sha:0:8}: CI $state"
+          if [ "$state" != "failure" ]; then
+            target="$sha"
+            break
+          fi
+        done
+        echo "upstream_head=${target:-$tip}" >> "$GITHUB_OUTPUT"
+        if [ -z "$target" ]; then
+          echo "Nothing new in upstream that is at least $SOAK_DAYS days old and green (upstream tip ${tip:0:8})" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "changed=false" >> "$GITHUB_OUTPUT"
           exit 0
         fi
         echo "changed=true" >> "$GITHUB_OUTPUT"
-        git log --oneline --no-decorate "HEAD..$upstream_head" > upstream-commits.txt
+        git log --oneline --no-decorate "HEAD..$target" > upstream-commits.txt
         cat upstream-commits.txt
-        if ! git merge --no-ff --no-edit -m "Sincronizar con upstream (crackededed/Xtra) ${upstream_head:0:8}" "$upstream_head"; then
+
+        if ! git merge --no-ff --no-edit -m "Sincronizar con upstream (crackededed/Xtra) ${target:0:8}" "$target"; then
           git diff --name-only --diff-filter=U > conflicts.txt
           cat conflicts.txt
-          git merge --abort
-          echo "Hay conflictos al mezclar upstream: hay que resolverlos a mano." > reason.txt
-          echo "::error::Merge conflicts with upstream"
-          exit 1
+          # a conflict only in the few lines the fork changes is solved by taking upstream's file and re-applying them
+          bash .github/scripts/tv-touchpoints.sh files | sort > touchpoints.txt
+          if [ -z "$(sort conflicts.txt | comm -23 - touchpoints.txt)" ] && xargs -a conflicts.txt git checkout --theirs --; then
+            bash .github/scripts/tv-touchpoints.sh apply
+            git add -- $(bash .github/scripts/tv-touchpoints.sh files)
+            git commit --no-edit
+            echo "Conflictos resueltos solos en los puntos de contacto: $(tr '\n' ' ' < conflicts.txt)" >> "$GITHUB_STEP_SUMMARY"
+            rm conflicts.txt
+          else
+            git merge --abort
+            echo "Hay conflictos al mezclar upstream fuera de los puntos de contacto: hay que resolverlos a mano." > reason.txt
+            echo "::error::Merge conflicts with upstream"
+            exit 1
+          fi
         fi
+        echo "merged=true" >> "$GITHUB_OUTPUT"
         if git diff --name-only HEAD^1 HEAD | grep -q '^\.github/workflows/'; then
           echo "workflows_changed=true" >> "$GITHUB_OUTPUT"
         fi
@@ -80,6 +130,21 @@ jobs:
           echo "::error::Upstream changed .github/workflows: a SYNC_TOKEN secret is needed"
           exit 1
         fi
+
+    - name: Check the points where the fork touches upstream
+      if: steps.merge.outputs.changed == 'true' || inputs.force_test
+      run: |
+        echo "Falta alguno de los cambios del fork en archivos del original (tv-touchpoints.sh)." > reason.txt
+        bash .github/scripts/tv-touchpoints.sh check
+        rm reason.txt
+
+    - name: Check the contract with upstream
+      if: steps.merge.outputs.changed == 'true' || inputs.force_test
+      run: |
+        echo "El original ha cambiado algo que la interfaz TV usa por nombre (ajustes o navegación); ver los errores del contrato." > reason.txt
+        node .github/scripts/check-tv-contract.mjs
+        bash .github/scripts/check-tv-boundary.sh
+        rm reason.txt
 
     - name: Setup Java
       if: steps.merge.outputs.changed == 'true' || inputs.force_test
@@ -96,9 +161,11 @@ jobs:
 
     - name: Build with Gradle
       if: steps.merge.outputs.changed == 'true' || inputs.force_test
+      shell: bash
       run: |
-        echo "No compila con los cambios de upstream." > reason.txt
-        ./gradlew assembleRelease
+        echo "No compila con los cambios de upstream: hay que adaptar ui/tv/upstream." > reason.txt
+        ./gradlew assembleRelease 2>&1 | tee build.log
+        test "${PIPESTATUS[0]}" -eq 0
         rm reason.txt
 
     - name: Check the TV manifest
@@ -157,12 +224,24 @@ jobs:
           gh workflow run tv-release.yml --ref master
         fi
 
+    - name: Keep the merge for repair
+      if: failure() && steps.merge.outputs.merged == 'true'
+      id: keep
+      env:
+        UPSTREAM_HEAD: ${{ steps.merge.outputs.upstream_head }}
+      run: |
+        branch="sync/upstream-${UPSTREAM_HEAD:0:8}"
+        if git push --force origin "HEAD:refs/heads/$branch"; then
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Report the failure
       if: failure()
       env:
         GH_TOKEN: ${{ github.token }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         UPSTREAM_HEAD: ${{ steps.merge.outputs.upstream_head }}
+        BRANCH: ${{ steps.keep.outputs.branch }}
       run: |
         {
           echo "La sincronización automática con crackededed/Xtra se ha detenido y no se ha publicado nada."
@@ -170,10 +249,20 @@ jobs:
           if [ -s reason.txt ]; then cat reason.txt; echo; fi
           echo "- Ejecución: $RUN_URL"
           echo "- Commit de upstream: ${UPSTREAM_HEAD:-desconocido}"
+          if [ -n "$BRANCH" ]; then
+            echo "- La mezcla ya hecha está en la rama \`$BRANCH\`: arréglala ahí (normalmente solo en \`ui/tv/upstream/\`) y mézclala en master."
+          fi
           if [ -s conflicts.txt ]; then
             echo
             echo "Archivos con conflictos:"
             sed 's/^/- /' conflicts.txt
+          fi
+          if [ -s build.log ] && grep -qE '^e: ' build.log; then
+            echo
+            echo "Errores del compilador:"
+            echo '```'
+            grep -E '^e: ' build.log | sed 's|file:///home/runner/work/[^/]*/[^/]*/||' | head -40
+            echo '```'
           fi
           if [ -s upstream-commits.txt ]; then
             echo

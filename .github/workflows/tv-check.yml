@@ -1,0 +1,51 @@
+# Verifies a branch without publishing anything: TV contract with the original, build and TV manifest.
+# Used for work branches and pull requests; master is verified (and released) by tv-release.yml.
+name: TV check
+
+on:
+  push:
+    branches-ignore: [ master ]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tv-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+    - name: Checkout sources
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Check the points where the fork touches the original
+      run: bash .github/scripts/tv-touchpoints.sh check
+
+    - name: Check the contract and the boundary with the original
+      run: |
+        node .github/scripts/check-tv-contract.mjs
+        bash .github/scripts/check-tv-boundary.sh
+
+    - name: Setup Java
+      uses: actions/setup-java@v6
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v6
+      with:
+        cache-provider: 'basic'
+
+    - name: Build with Gradle
+      run: ./gradlew assembleRelease
+
+    - name: Check the TV manifest
+      run: bash .github/scripts/check-tv-manifest.sh "$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
