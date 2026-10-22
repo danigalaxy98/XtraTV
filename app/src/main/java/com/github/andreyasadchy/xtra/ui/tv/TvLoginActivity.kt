@@ -28,21 +28,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.edit
 import androidx.lifecycle.lifecycleScope
 import androidx.tv.material3.Text
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.XtraApp
-import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamAccount
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 
 /**
  * Twitch login for TV with the device code flow: the user authorizes the code on another device and the
@@ -73,21 +68,13 @@ class TvLoginActivity : ComponentActivity() {
         userCode = null
         status = Status.LOADING
         loginJob = lifecycleScope.launch {
-            val xtraModule = (application as XtraApp).xtraModule
-            val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-            val gqlClientId = gqlClientId()
-            val code = try {
-                xtraModule.authRepository.getDeviceCode(networkLibrary, "client_id=${gqlClientId}&scopes=$SCOPES")
-            } catch (e: Exception) {
-                null
-            }
-            val deviceCode = code?.deviceCode
-            val newUserCode = code?.userCode
-            if (deviceCode == null || newUserCode == null) {
+            val clientId = TvUpstreamAccount.loginClientId(this@TvLoginActivity)
+            val code = TvUpstreamAccount.requestDeviceCode(this@TvLoginActivity, clientId, SCOPES)
+            if (code == null) {
                 status = Status.ERROR
                 return@launch
             }
-            userCode = newUserCode
+            userCode = code.userCode
             status = Status.WAITING
             val started = System.currentTimeMillis()
             while (isActive) {
@@ -96,59 +83,26 @@ class TvLoginActivity : ComponentActivity() {
                     status = Status.EXPIRED
                     return@launch
                 }
-                val response = try {
-                    xtraModule.authRepository.getToken(networkLibrary, "client_id=${gqlClientId}&device_code=${deviceCode}&grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code")
-                } catch (e: Exception) {
-                    // a network hiccup: keep waiting
-                    continue
-                }
-                val token = response.token
-                if (!token.isNullOrBlank()) {
-                    if (!finishLogin(networkLibrary, gqlClientId, token)) {
-                        status = Status.ERROR
+                when (val poll = TvUpstreamAccount.pollToken(this@TvLoginActivity, clientId, code.deviceCode)) {
+                    is TvUpstreamAccount.TokenPoll.Granted -> {
+                        if (TvUpstreamAccount.completeLogin(this@TvLoginActivity, clientId, poll.token)) {
+                            setResult(RESULT_OK)
+                            finish()
+                        } else {
+                            status = Status.ERROR
+                        }
+                        return@launch
                     }
-                    return@launch
-                }
-                val message = response.message.orEmpty()
-                if (!message.contains("pending", ignoreCase = true) && !message.contains("slow_down", ignoreCase = true)) {
+                    // not authorized yet, or a network hiccup: keep waiting
+                    TvUpstreamAccount.TokenPoll.Pending, TvUpstreamAccount.TokenPoll.Retry -> {}
                     // "invalid device code": expired or rejected
-                    status = Status.EXPIRED
-                    return@launch
+                    TvUpstreamAccount.TokenPoll.Rejected -> {
+                        status = Status.EXPIRED
+                        return@launch
+                    }
                 }
             }
         }
-    }
-
-    private suspend fun finishLogin(networkLibrary: String?, gqlClientId: String?, token: String): Boolean {
-        val validation = try {
-            (application as XtraApp).xtraModule.authRepository.validate(networkLibrary, TwitchApiHelper.addTokenPrefixGQL(token))
-        } catch (e: Exception) {
-            null
-        }
-        if (validation == null || validation.clientId.isBlank() || validation.clientId != gqlClientId) {
-            return false
-        }
-        TwitchApiHelper.checkedValidation = true
-        prefs().edit { putString(C.GQL_CLIENT_ID2, gqlClientId) }
-        tokenPrefs().edit {
-            putString(C.GQL_TOKEN2, token)
-            putString(C.USER_ID, validation.userId)
-            putString(C.USERNAME, validation.login)
-        }
-        setResult(RESULT_OK)
-        finish()
-        return true
-    }
-
-    /** The client id used by the upstream code login, including the migration LoginActivity applies when opened. */
-    private fun gqlClientId(): String? {
-        if (prefs().getString(C.GQL_CLIENT_ID2, OLD_GQL_CLIENT_ID) == OLD_GQL_CLIENT_ID) {
-            prefs().edit {
-                putString(C.GQL_CLIENT_ID2, NEW_GQL_CLIENT_ID)
-                putString(C.GQL_REDIRECT2, NEW_GQL_REDIRECT)
-            }
-        }
-        return prefs().getString(C.GQL_CLIENT_ID2, OLD_GQL_CLIENT_ID)
     }
 
     @Composable
@@ -216,10 +170,6 @@ class TvLoginActivity : ComponentActivity() {
 
     companion object {
         private const val SCOPES = "channel_read+chat%3Aread+user_blocks_edit+user_blocks_read+user_follows_edit+user_read"
-        // same values as LoginActivity.onCreate
-        private const val OLD_GQL_CLIENT_ID = "kd1unb4b3q4t58fwlpcbzcbnm76a8fp"
-        private const val NEW_GQL_CLIENT_ID = "ue6666qo983tsx6so1t0vnawi233wa"
-        private const val NEW_GQL_REDIRECT = "https://www.twitch.tv/settings/connections"
         private val POLL_INTERVAL = 5.seconds
         private val CODE_LIFETIME = 30.minutes
     }

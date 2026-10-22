@@ -1,8 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.tv
 
 import android.Manifest
-import android.app.admin.DevicePolicyManager
 import android.app.admin.DeviceAdminReceiver
+import android.app.admin.DevicePolicyManager
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Intent
@@ -14,7 +14,6 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.BorderStroke
@@ -84,10 +83,8 @@ import androidx.preference.TwoStatePreference
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
-import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamSettings
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 
@@ -103,7 +100,7 @@ class TvSettingsActivity : AppCompatActivity() {
         class Confirm(val message: String, val action: () -> Unit) : Panel
     }
 
-    private val settingsViewModel: SettingsViewModel by viewModels { SettingsViewModel.SettingsViewModelFactory }
+    private val upstreamSettings = TvUpstreamSettings(this)
     private lateinit var sections: List<TvSettingsSection>
     private val screens = mutableMapOf<Int, PreferenceScreen>()
 
@@ -153,12 +150,7 @@ class TvSettingsActivity : AppCompatActivity() {
                 ) {
                     ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
                 }
-                settingsViewModel.toggleNotifications(
-                    enabled = checked,
-                    networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                    gqlHeaders = TwitchApiHelper.getGQLHeaders(this, true),
-                    helixHeaders = TwitchApiHelper.getHelixHeaders(this),
-                )
+                upstreamSettings.toggleNotifications(checked)
             }
             "sleep_timer_lock" -> if (checked) {
                 val devicePolicyManager = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
@@ -242,14 +234,14 @@ class TvSettingsActivity : AppCompatActivity() {
             key != null && TvSettingsModel.confirmActions.containsKey(key) -> {
                 openPanel(key, Panel.Confirm(getString(TvSettingsModel.confirmActions.getValue(key))) {
                     when (key) {
-                        "delete_video_positions" -> settingsViewModel.deletePositions()
-                        "delete_recent_searches" -> settingsViewModel.deleteRecentSearches()
+                        "delete_video_positions" -> upstreamSettings.deleteVideoPositions()
+                        "delete_recent_searches" -> upstreamSettings.deleteRecentSearches()
                     }
                     Toast.makeText(this, R.string.tv_done, Toast.LENGTH_SHORT).show()
                 })
             }
             key == TvSettingsModel.ACTION_IMPORT_DOWNLOADS -> {
-                settingsViewModel.importDownloads()
+                upstreamSettings.importDownloads()
                 Toast.makeText(this, R.string.tv_done, Toast.LENGTH_SHORT).show()
             }
             key == TvSettingsModel.ACTION_ADMIN_SETTINGS -> {
@@ -279,7 +271,7 @@ class TvSettingsActivity : AppCompatActivity() {
 
     private fun openClassic(destination: Int) {
         setResult(RESULT_OK)
-        startActivity(Intent(this, SettingsActivity::class.java).putExtra(TvHooks.EXTRA_CLASSIC_DESTINATION, destination))
+        TvUpstreamSettings.openClassic(this, destination)
     }
 
     private fun tryStart(intent: Intent) {

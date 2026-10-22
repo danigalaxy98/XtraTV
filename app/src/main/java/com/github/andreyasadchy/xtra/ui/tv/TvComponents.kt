@@ -1,37 +1,27 @@
 package com.github.andreyasadchy.xtra.ui.tv
 
-import androidx.annotation.DrawableRes
 import android.text.format.DateFormat
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.offset
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.platform.LocalContext
-import java.util.Date
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,17 +32,25 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -74,9 +72,10 @@ import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.model.ui.Video
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import kotlinx.coroutines.delay
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamAccount
+import java.util.Date
 import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.delay
 
 @Composable
 fun ScreenTitle(text: String, modifier: Modifier = Modifier, trailing: @Composable () -> Unit = {}) {
@@ -451,7 +450,7 @@ fun StreamCard(stream: Stream, onClick: () -> Unit, onLongClick: () -> Unit) {
                 )
                 stream.viewerCount?.let { count ->
                     Badge(
-                        text = pluralStringResource(R.plurals.viewers, count, TwitchApiHelper.formatCount(count, true)),
+                        text = pluralStringResource(R.plurals.viewers, count, TvUpstreamAccount.formatCount(count)),
                         color = Color(0xCC000000),
                         modifier = Modifier
                             .align(Alignment.BottomStart)
@@ -490,7 +489,7 @@ fun VideoCard(video: Video, onClick: () -> Unit) {
             CardText(
                 title = video.title,
                 subtitle = video.gameName,
-                third = video.viewCount?.let { pluralStringResource(R.plurals.views, it, TwitchApiHelper.formatCount(it, true)) },
+                third = video.viewCount?.let { pluralStringResource(R.plurals.views, it, TvUpstreamAccount.formatCount(it)) },
             )
         }
     }
@@ -510,7 +509,7 @@ fun GameCard(game: Game, onClick: () -> Unit) {
             Thumbnail(game.boxArt, ratio = 3f / 4f)
             CardText(
                 title = game.name,
-                subtitle = game.viewerCount?.let { pluralStringResource(R.plurals.viewers, it, TwitchApiHelper.formatCount(it, true)) },
+                subtitle = game.viewerCount?.let { pluralStringResource(R.plurals.viewers, it, TvUpstreamAccount.formatCount(it)) },
             )
         }
     }

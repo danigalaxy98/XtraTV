@@ -2,10 +2,9 @@ package com.github.andreyasadchy.xtra.ui.tv
 
 import android.content.Context
 import androidx.core.content.edit
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamAccount
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.tokenPrefs
 
 /**
  * Settings that only exist in the Android TV interface (defined in res/xml/tv_preferences.xml).
@@ -38,24 +37,10 @@ object TvPrefs {
         return minutes * 60_000L
     }
 
-    fun isLoggedIn(context: Context): Boolean {
-        return !TwitchApiHelper.getGQLHeaders(context, true)[C.HEADER_TOKEN].isNullOrBlank() ||
-                !TwitchApiHelper.getHelixHeaders(context)[C.HEADER_TOKEN].isNullOrBlank()
-    }
+    fun isLoggedIn(context: Context): Boolean = TvUpstreamAccount.isLoggedIn(context)
 
     /** Forgets the account tokens, like the phone app does before logging in again. */
-    fun logout(context: Context) {
-        TwitchApiHelper.checkedValidation = false
-        context.tokenPrefs().edit {
-            putString(C.TOKEN, null)
-            putString(C.GQL_HEADERS, null)
-            putLong(C.INTEGRITY_EXPIRATION, 0)
-            putString(C.GQL_TOKEN2, null)
-            putString(C.GQL_TOKEN_WEB, null)
-            putString(C.USER_ID, null)
-            putString(C.USERNAME, null)
-        }
-    }
+    fun logout(context: Context) = TvUpstreamAccount.logout(context)
 
     /**
      * The TV build is distributed from the fork, so updates must come from there:

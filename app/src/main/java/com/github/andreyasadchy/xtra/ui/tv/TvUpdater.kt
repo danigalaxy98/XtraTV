@@ -43,10 +43,15 @@ import androidx.lifecycle.lifecycleScope
 import androidx.tv.material3.Text
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamAccount
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import java.io.File
+import java.net.URI
+import java.util.Date
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Instant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.ensureActive
@@ -59,11 +64,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import okhttp3.Request
-import java.io.File
-import java.net.URI
-import java.util.Date
-import kotlin.coroutines.cancellation.CancellationException
-import kotlin.time.Instant
 
 /**
  * Update checks for the TV build. It uses the same GitHub "latest" release as the phone app, but:
@@ -122,16 +122,15 @@ object TvUpdater {
     }
 
     suspend fun check(context: Context): CheckResult = withContext(Dispatchers.IO) {
-        val xtraModule = (context.applicationContext as XtraApp).xtraModule
         val url = context.prefs().getString(C.UPDATE_URL, null)?.takeIf { it.isNotBlank() && isAllowedReleaseUrl(it) }
             ?: return@withContext CheckResult.Failed
         try {
-            val body = xtraModule.okHttpClient.value.newCall(Request.Builder().url(url).build()).execute().use { response ->
+            val body = TvUpstreamAccount.okHttpClient(context).newCall(Request.Builder().url(url).build()).execute().use { response ->
                 if (!response.isSuccessful) return@withContext CheckResult.Failed
                 response.body.string()
             }
             context.tokenPrefs().edit { putLong(LAST_AUTO_CHECK, System.currentTimeMillis()) }
-            val release = xtraModule.json.decodeFromString<JsonObject>(body)
+            val release = TvUpstreamAccount.json(context).decodeFromString<JsonObject>(body)
             val asset = release["assets"]?.jsonArray?.map { it.jsonObject }?.find {
                 it["content_type"]?.jsonPrimitive?.contentOrNull == "application/vnd.android.package-archive" ||
                         it["name"]?.jsonPrimitive?.contentOrNull?.endsWith(".apk") == true
@@ -194,11 +193,10 @@ object TvUpdater {
      * Returns null on failure; the partial file is deleted on failure or cancellation.
      */
     suspend fun download(context: Context, info: UpdateInfo, onProgress: (Float) -> Unit): File? = withContext(Dispatchers.IO) {
-        val xtraModule = (context.applicationContext as XtraApp).xtraModule
         val file = apkFile(context)
         file.delete()
         try {
-            val complete = xtraModule.okHttpClient.value.newCall(Request.Builder().url(info.downloadUrl).build()).execute().use { response ->
+            val complete = TvUpstreamAccount.okHttpClient(context).newCall(Request.Builder().url(info.downloadUrl).build()).execute().use { response ->
                 // redirects go to GitHub's asset storage, check where we ended up
                 val finalUrl = response.request.url
                 if (!response.isSuccessful || !finalUrl.isHttps || !isAllowedDownloadHost(finalUrl.host)) return@use false

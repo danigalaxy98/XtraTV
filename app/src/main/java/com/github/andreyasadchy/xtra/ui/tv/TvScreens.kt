@@ -40,22 +40,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.os.bundleOf
-import androidx.lifecycle.DEFAULT_ARGS_KEY
-import androidx.lifecycle.HasDefaultViewModelProviderFactory
-import androidx.lifecycle.viewmodel.CreationExtras
-import androidx.lifecycle.viewmodel.MutableCreationExtras
-import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.tv.material3.Text
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.ui.Stream
-import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerViewModel
-import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
-import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvPageModel
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamAccount
 
 private val STREAM_COLUMNS: Int
     @Composable get() = TvPrefs.streamColumns(LocalContext.current)
@@ -255,48 +246,16 @@ private fun SectionLabel(text: String) {
 @Composable
 fun ChannelScreen(viewModel: TvBrowseViewModel, channel: TvDestination.Channel, actions: TvActions) {
     val context = LocalContext.current
-    val owner = LocalViewModelStoreOwner.current
-    val extras = remember(channel) {
-        MutableCreationExtras(
-            (owner as? HasDefaultViewModelProviderFactory)?.defaultViewModelCreationExtras ?: CreationExtras.Empty
-        ).apply {
-            this[DEFAULT_ARGS_KEY] = bundleOf(
-                "channelId" to channel.id,
-                "channelLogin" to channel.login,
-                "channelName" to channel.name,
-            )
-        }
-    }
-    val channelViewModel: ChannelPagerViewModel = viewModel(
-        key = "tv_channel_${channel.id ?: channel.login}",
-        factory = ChannelPagerViewModel.ChannelPagerViewModelFactory,
-        extras = extras,
-    )
-    val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-    val enableIntegrity = context.prefs().getBoolean(C.ENABLE_INTEGRITY, false)
-    val followSetting = context.prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0
-    val userId = context.tokenPrefs().getString(C.USER_ID, null)
+    val channelModel = TvPageModel.of(channel.id, channel.login, channel.name)
+    val userId = TvUpstreamAccount.userId(context)
     LaunchedEffect(channel) {
-        channelViewModel.loadStream(
-            networkLibrary,
-            TwitchApiHelper.getGQLHeaders(context),
-            TwitchApiHelper.getHelixHeaders(context),
-            enableIntegrity,
-        )
-        channelViewModel.isFollowingChannel(
-            userId,
-            channel.id,
-            channel.login,
-            followSetting,
-            networkLibrary,
-            TwitchApiHelper.getGQLHeaders(context, true),
-            TwitchApiHelper.getHelixHeaders(context),
-        )
+        channelModel.load()
+        channelModel.checkFollowing(channel.id, channel.login)
     }
-    val stream by channelViewModel.stream.collectAsState()
-    val user by channelViewModel.user.collectAsState()
-    val isFollowing by channelViewModel.isFollowing.collectAsState()
-    val followResult by channelViewModel.follow.collectAsState()
+    val stream by channelModel.stream.collectAsState()
+    val user by channelModel.user.collectAsState()
+    val isFollowing by channelModel.isFollowing.collectAsState()
+    val followResult by channelModel.followResult.collectAsState()
     LaunchedEffect(followResult) {
         followResult?.let { (following, error) ->
             val name = user?.name ?: channel.name ?: channel.login
@@ -306,7 +265,7 @@ fun ChannelScreen(viewModel: TvBrowseViewModel, channel: TvDestination.Channel, 
                 else -> context.getString(R.string.unfollowed, name)
             }
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-            channelViewModel.follow.value = null
+            channelModel.clearFollowResult()
         }
     }
     val channelId = channel.id ?: user?.id
@@ -337,7 +296,7 @@ fun ChannelScreen(viewModel: TvBrowseViewModel, channel: TvDestination.Channel, 
                         )
                         user?.followerCount?.let {
                             Text(
-                                text = pluralStringResource(R.plurals.followers, it, TwitchApiHelper.formatCount(it, true)),
+                                text = pluralStringResource(R.plurals.followers, it, TvUpstreamAccount.formatCount(it)),
                                 color = TvColors.TextSecondary,
                                 fontSize = 16.sp,
                             )
@@ -350,17 +309,9 @@ fun ChannelScreen(viewModel: TvBrowseViewModel, channel: TvDestination.Channel, 
                             selected = isFollowing == true,
                             onClick = {
                                 if (isFollowing == true) {
-                                    channelViewModel.deleteFollowChannel(
-                                        userId, channelId, followSetting, networkLibrary,
-                                        TwitchApiHelper.getGQLHeaders(context, true), enableIntegrity,
-                                    )
+                                    channelModel.unfollow(channelId)
                                 } else {
-                                    channelViewModel.saveFollowChannel(
-                                        userId, channelId, channel.login, user?.name ?: channel.name, followSetting,
-                                        context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false),
-                                        !context.prefs().getBoolean(C.UI_ACTIVATE_NOTIFICATIONS_WHEN_FOLLOWING, true),
-                                        networkLibrary, TwitchApiHelper.getGQLHeaders(context, true), enableIntegrity,
-                                    )
+                                    channelModel.follow(channelId, channel.login, user?.name ?: channel.name)
                                 }
                             },
                         )

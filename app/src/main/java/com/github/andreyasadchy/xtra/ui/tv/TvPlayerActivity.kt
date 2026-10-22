@@ -1,20 +1,15 @@
 package com.github.andreyasadchy.xtra.ui.tv
 
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.ServiceConnection
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Bundle
-import android.os.IBinder
 import android.view.KeyEvent
-import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
-import androidx.activity.viewModels
 import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedVisibility
@@ -28,17 +23,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,6 +38,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,41 +55,32 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
-import androidx.fragment.app.Fragment
-import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
-import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ActivityTvPlayerBinding
-import com.github.andreyasadchy.xtra.model.PlaybackState
-import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
-import com.github.andreyasadchy.xtra.ui.chat.ChatFragment
-import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel
-import com.github.andreyasadchy.xtra.ui.main.MainViewModel
-import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
-import com.github.andreyasadchy.xtra.ui.player.PlayerViewModel
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvPlaybackConnection
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvPlaybackListener
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvPlaybackService
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvPlayerModel
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvQuality
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamPlayer
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.tokenPrefs
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 /**
  * Fullscreen player for Android TV: video, optional chat panel on the right and an info/controls overlay
@@ -107,12 +90,10 @@ import kotlin.time.Instant
 class TvPlayerActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityTvPlayerBinding
-    private val viewModel: PlayerViewModel by viewModels { PlayerViewModel.PlayerViewModelFactory }
-    // shared with ChatFragment (BaseNetworkFragment uses activityViewModels)
-    private val mainViewModel: MainViewModel by viewModels { MainViewModel.MainViewModelFactory }
+    private val channelModel by lazy { TvPlayerModel.of(this) }
 
-    private var service: ExoPlayerService? = null
-    private var connection: ServiceConnection? = null
+    private var service: TvPlaybackService? = null
+    private var connection: TvPlaybackConnection? = null
     private var closed = false
     private var handledRaid: String? = null
     private var infoLoaded = false
@@ -147,8 +128,8 @@ class TvPlayerActivity : AppCompatActivity() {
     private var chatVisible by mutableStateOf(false)
     private var chatAvailable by mutableStateOf(false)
     private var isFollowing by mutableStateOf<Boolean?>(null)
-    private var qualities by mutableStateOf<List<VideoQuality>>(emptyList())
-    private var currentQuality by mutableStateOf<VideoQuality?>(null)
+    private var qualities by mutableStateOf<List<TvQuality>>(emptyList())
+    private var currentQuality by mutableStateOf<TvQuality?>(null)
     private var position by mutableLongStateOf(0L)
     private var duration by mutableLongStateOf(0L)
     private var progress by mutableFloatStateOf(0f)
@@ -167,7 +148,7 @@ class TvPlayerActivity : AppCompatActivity() {
         }
     }
 
-    private val serviceListener = object : ExoPlayerService.Listener {
+    private val serviceListener = object : TvPlaybackListener {
         override fun started() {
             onPlaybackStarted()
         }
@@ -263,7 +244,7 @@ class TvPlayerActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
-                    viewModel.stream.collectLatest { info ->
+                    channelModel.stream.collectLatest { info ->
                         if (info != null) {
                             info.title?.let { title = it }
                             info.gameName?.let { gameName = it }
@@ -276,10 +257,10 @@ class TvPlayerActivity : AppCompatActivity() {
                     }
                 }
                 launch {
-                    viewModel.isFollowing.collectLatest { isFollowing = it }
+                    channelModel.isFollowing.collectLatest { isFollowing = it }
                 }
                 launch {
-                    viewModel.follow.collectLatest { pair ->
+                    channelModel.followResult.collectLatest { pair ->
                         if (pair != null) {
                             val (following, error) = pair
                             val message = when {
@@ -288,7 +269,7 @@ class TvPlayerActivity : AppCompatActivity() {
                                 else -> getString(R.string.unfollowed, channelName ?: channelLogin)
                             }
                             Toast.makeText(this@TvPlayerActivity, message, Toast.LENGTH_SHORT).show()
-                            viewModel.follow.value = null
+                            channelModel.clearFollowResult()
                         }
                     }
                 }
@@ -296,47 +277,9 @@ class TvPlayerActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch {
-            if (savedInstanceState == null) {
-                val state = when {
-                    stream != null -> PlaybackState(
-                        type = BasePlaybackService.STREAM,
-                        streamId = stream.id,
-                        channelId = stream.channelId,
-                        channelLogin = stream.channelLogin,
-                        channelName = stream.channelName,
-                        channelImage = stream.channelImage,
-                        gameId = stream.gameId,
-                        gameSlug = stream.gameSlug,
-                        gameName = stream.gameName,
-                        title = stream.title,
-                        thumbnail = stream.thumbnail,
-                        createdAt = stream.createdAt,
-                        viewerCount = stream.viewerCount,
-                    )
-                    video != null -> PlaybackState(
-                        type = BasePlaybackService.VIDEO,
-                        videoId = video.id,
-                        channelId = video.channelId,
-                        channelLogin = video.channelLogin,
-                        channelName = video.channelName,
-                        channelImage = video.channelImage,
-                        gameId = video.gameId,
-                        gameSlug = video.gameSlug,
-                        gameName = video.gameName,
-                        title = video.title,
-                        thumbnail = video.thumbnail,
-                        createdAt = video.createdAt,
-                        durationSeconds = video.durationSeconds,
-                        videoType = video.type,
-                        videoAnimatedPreviewURL = video.animatedPreviewURL,
-                    )
-                    else -> null
-                }
-                if (state == null) {
-                    finish()
-                    return@launch
-                }
-                (application as XtraApp).xtraModule.playerRepository.savePlaybackStates(listOf(state))
+            if (savedInstanceState == null && !TvUpstreamPlayer.savePlaybackState(application, stream, video)) {
+                finish()
+                return@launch
             }
             bindPlaybackService()
         }
@@ -344,23 +287,12 @@ class TvPlayerActivity : AppCompatActivity() {
 
     private fun bindPlaybackService() {
         if (closed || isFinishing) return
-        val connection = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                if (closed) {
-                    (binder as? ExoPlayerService.ServiceBinder)?.getService()?.let { service ->
-                        service.stop()
-                        service.stopSelf()
-                    }
-                    try {
-                        unbindService(this)
-                    } catch (e: IllegalArgumentException) {
-                    }
-                    return
-                }
-                val service = (binder as ExoPlayerService.ServiceBinder).getService()
-                this@TvPlayerActivity.service = service
-                service.serviceListener = serviceListener
-                service.setStopServiceTimer(false)
+        connection = TvUpstreamPlayer.bind(
+            activity = this,
+            listener = serviceListener,
+            isClosed = { closed },
+            onConnected = { service ->
+                this.service = service
                 (service.secondaryPlayer ?: service.player)?.let { player ->
                     player.setVideoSurfaceView(binding.playerSurface)
                     player.addListener(playerListener)
@@ -370,18 +302,9 @@ class TvPlayerActivity : AppCompatActivity() {
                     onPlaybackStarted()
                 }
                 updateQualities()
-            }
-
-            override fun onServiceDisconnected(name: ComponentName?) {
-                service = null
-            }
-        }
-        val intent = Intent(this, ExoPlayerService::class.java).apply {
-            action = ExoPlayerService.INTENT_START
-        }
-        startService(intent)
-        bindService(intent, connection, BIND_AUTO_CREATE)
-        this.connection = connection
+            },
+            onDisconnected = { service = null },
+        )
     }
 
     private fun onPlaybackStarted() {
@@ -391,38 +314,22 @@ class TvPlayerActivity : AppCompatActivity() {
         channelId = service.channelId ?: channelId
         channelLogin = service.channelLogin ?: channelLogin
         channelName = service.channelName ?: channelName
-        val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-        if (service.type == BasePlaybackService.STREAM) {
-            viewModel.loadStreamInfo(
-                channelId = channelId,
-                channelLogin = channelLogin,
-                viewerCount = service.viewerCount,
-                loop = true,
-                networkLibrary = networkLibrary,
-                helixHeaders = TwitchApiHelper.getHelixHeaders(this),
-                gqlHeaders = TwitchApiHelper.getGQLHeaders(this),
-                enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false),
-            )
+        if (service.isStream) {
+            channelModel.loadStreamInfo(channelId, channelLogin, service.viewerCount)
             if (chatAvailable && supportFragmentManager.findFragmentById(R.id.chatContainer) == null) {
                 supportFragmentManager.beginTransaction()
-                    .replace(R.id.chatContainer, ChatFragment.newInstance(channelId, channelLogin, channelName, service.streamId))
+                    .replace(R.id.chatContainer, TvUpstreamPlayer.newChat(channelId, channelLogin, channelName, service.streamId))
                     .commit()
             }
         }
-        viewModel.isFollowingChannel(
-            tokenPrefs().getString(C.USER_ID, null),
-            channelId,
-            channelLogin,
-            prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0,
-            networkLibrary,
-            TwitchApiHelper.getGQLHeaders(this, true),
-            TwitchApiHelper.getHelixHeaders(this),
-        )
+        channelModel.checkFollowing(channelId, channelLogin)
+        networkLost = true
+        if (chatAvailable) TvUpstreamPlayer.setNetworkAvailable(this, false)
     }
 
     private fun updateQualities() {
         val service = service ?: return
-        qualities = service.qualities.orEmpty().filter { it.name != VideoQuality.CHAT_ONLY_QUALITY }
+        qualities = service.qualities
         currentQuality = service.quality
     }
 
@@ -438,20 +345,10 @@ class TvPlayerActivity : AppCompatActivity() {
     }
 
     private fun toggleFollow() {
-        val userId = tokenPrefs().getString(C.USER_ID, null)
-        val setting = prefs().getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0
-        val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-        val enableIntegrity = prefs().getBoolean(C.ENABLE_INTEGRITY, false)
         if (isFollowing == true) {
-            viewModel.deleteFollowChannel(userId, channelId, setting, networkLibrary, TwitchApiHelper.getGQLHeaders(this, true), enableIntegrity)
+            channelModel.unfollow(channelId)
         } else {
-            viewModel.saveFollowChannel(
-                userId, channelId, channelLogin, channelName, setting,
-                prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false),
-                !prefs().getBoolean(C.UI_ACTIVATE_NOTIFICATIONS_WHEN_FOLLOWING, true),
-                viewModel.stream.value?.createdAt,
-                networkLibrary, TwitchApiHelper.getGQLHeaders(this, true), enableIntegrity,
-            )
+            channelModel.follow(channelId, channelLogin, channelName)
         }
     }
 
@@ -653,7 +550,7 @@ class TvPlayerActivity : AppCompatActivity() {
                             text = listOfNotNull(
                                 gameName,
                                 viewerCount?.takeIf { isStream }?.let {
-                                    pluralStringResource(R.plurals.viewers, it, TwitchApiHelper.formatCount(it, true))
+                                    pluralStringResource(R.plurals.viewers, it, TvUpstreamAccount.formatCount(it))
                                 },
                                 startedAt?.takeIf { isStream }?.let { uptimeText(it) },
                             ).joinToString("  ·  "),
@@ -807,7 +704,7 @@ class TvPlayerActivity : AppCompatActivity() {
         }
     }
 
-    private fun selectQuality(quality: VideoQuality) {
+    private fun selectQuality(quality: TvQuality) {
         qualityMenuVisible = false
         try {
             service?.changeQuality(quality)
@@ -819,12 +716,12 @@ class TvPlayerActivity : AppCompatActivity() {
     }
 
     @Composable
-    private fun qualityName(quality: VideoQuality): String {
-        return when (quality.name) {
-            VideoQuality.AUTO_QUALITY -> stringResource(R.string.auto)
-            VideoQuality.SOURCE_QUALITY -> stringResource(R.string.source)
-            VideoQuality.AUDIO_ONLY_QUALITY -> stringResource(R.string.audio_only)
-            else -> quality.name.orEmpty()
+    private fun qualityName(quality: TvQuality): String {
+        return when (quality.kind) {
+            TvQuality.Kind.AUTO -> stringResource(R.string.auto)
+            TvQuality.Kind.SOURCE -> stringResource(R.string.source)
+            TvQuality.Kind.AUDIO_ONLY -> stringResource(R.string.audio_only)
+            TvQuality.Kind.OTHER -> quality.name.orEmpty()
         }
     }
 
@@ -864,16 +761,9 @@ class TvPlayerActivity : AppCompatActivity() {
             service.secondaryPlayer?.removeListener(playerListener)
             service.player?.clearVideoSurfaceView(binding.playerSurface)
             service.secondaryPlayer?.clearVideoSurfaceView(binding.playerSurface)
-            if (service.serviceListener === serviceListener) {
-                service.serviceListener = null
-            }
+            service.clearListener(serviceListener)
         }
-        connection?.let {
-            try {
-                unbindService(it)
-            } catch (e: IllegalArgumentException) {
-            }
-        }
+        connection?.unbind()
         connection = null
         service = null
     }
@@ -938,15 +828,15 @@ class TvPlayerActivity : AppCompatActivity() {
     private fun onNetworkLost() {
         if (networkLost) return
         networkLost = true
-        if (chatAvailable) mainViewModel.isNetworkAvailable.value = false
+        if (chatAvailable) TvUpstreamPlayer.setNetworkAvailable(this, false)
     }
 
     private fun onNetworkRestored() {
         if (!networkLost || closed) return
         networkLost = false
-        if (chatAvailable) mainViewModel.isNetworkAvailable.value = true
+        if (chatAvailable) TvUpstreamPlayer.setNetworkAvailable(this, true)
         val service = service ?: return
-        if (service.type == BasePlaybackService.STREAM) {
+        if (service.isStream) {
             service.restartPlayer()
         } else {
             service.player?.let { player ->
@@ -957,37 +847,21 @@ class TvPlayerActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Raids: the chat only switches channel inside the phone player, so on TV the raid is read from the
-     * chat's view model and followed here when the countdown ends.
-     */
+    /** Raids: with the automatic switch on, follow the raid to its channel when the countdown ends. */
     private fun watchRaids() {
-        supportFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
-            override fun onFragmentCreated(fm: FragmentManager, f: Fragment, savedInstanceState: Bundle?) {
-                if (f !is ChatFragment) return
-                val chatViewModel = ViewModelProvider(f, ChatViewModel.ChatViewModelFactory)[ChatViewModel::class.java]
-                f.lifecycleScope.launch {
-                    f.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                        chatViewModel.raid.collect { raid ->
-                            if (raid != null && raid.openStream && !closed && prefs().getBoolean(C.CHAT_RAIDS_AUTO_SWITCH, true)) {
-                                val key = raid.raidId ?: raid.targetId ?: raid.targetLogin
-                                if (key != handledRaid) {
-                                    handledRaid = key
-                                    switchToStream(
-                                        Stream(
-                                            channelId = raid.targetId,
-                                            channelLogin = raid.targetLogin,
-                                            channelName = raid.targetName,
-                                            channelImageURL = raid.targetImageURL,
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+        TvUpstreamPlayer.watchRaids(this) { raid ->
+            if (!closed && raid.id != handledRaid && prefs().getBoolean(C.CHAT_RAIDS_AUTO_SWITCH, true)) {
+                handledRaid = raid.id
+                switchToStream(
+                    Stream(
+                        channelId = raid.channelId,
+                        channelLogin = raid.channelLogin,
+                        channelName = raid.channelName,
+                        channelImageURL = raid.channelImage,
+                    )
+                )
             }
-        }, false)
+        }
     }
 
     /** Raids: stop this stream first (so the playback service is released) and open the raided channel. */
@@ -1005,21 +879,17 @@ class TvPlayerActivity : AppCompatActivity() {
             service.stop()
             service.player?.removeListener(playerListener)
             service.secondaryPlayer?.removeListener(playerListener)
-            service.serviceListener = null
+            service.clearListener()
         }
         if (deleteStates) {
-            viewModel.deletePlaybackStates()
+            channelModel.deletePlaybackStates()
         }
-        connection?.let {
-            try {
-                unbindService(it)
-            } catch (e: IllegalArgumentException) {
-            }
-        }
+        val connection = connection
+        connection?.unbind()
         if (connection != null && service == null) {
-            stopService(Intent(this, ExoPlayerService::class.java))
+            connection.stopService()
         }
-        connection = null
+        this.connection = null
         service?.stopSelf()
         service = null
     }
