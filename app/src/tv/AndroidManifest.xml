@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Android TV interface (ui/tv). Merged over src/main/AndroidManifest.xml in every build type (see app/tv.gradle),
-  so the upstream manifest only loses the LEANBACK_LAUNCHER category of MainActivity: the TV launcher opens TvActivity.
+  so the upstream manifest only loses the LEANBACK_LAUNCHER category of MainActivity (tv-touchpoints.sh): the TV launcher
+  opens TvActivity. It also swaps in tv_data_extraction_rules.xml, which keeps the account tokens off device transfers.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
     <application
         android:banner="@drawable/tv_banner"
-        tools:replace="android:banner">
+        android:dataExtractionRules="@xml/tv_data_extraction_rules"
+        tools:replace="android:banner,android:dataExtractionRules">
 
         <activity
             android:name="com.github.andreyasadchy.xtra.ui.tv.TvActivity"

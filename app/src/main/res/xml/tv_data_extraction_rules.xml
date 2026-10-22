@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Same as data_extraction_rules.xml of the original plus device-transfer, so the account tokens (prefs2.xml) do not
+  travel to another device. Used by the TV build through src/tv/AndroidManifest.xml; the contract check (CI) makes
+  sure the cloud-backup part still matches the original.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <include domain="sharedpref" path="."/>
+        <exclude domain="sharedpref" path="prefs2.xml"/>
+        <include domain="database" path="."/>
+    </cloud-backup>
+    <device-transfer>
+        <include domain="sharedpref" path="."/>
+        <exclude domain="sharedpref" path="prefs2.xml"/>
+        <include domain="database" path="."/>
+    </device-transfer>
+</data-extraction-rules>

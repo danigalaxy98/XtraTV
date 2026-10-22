@@ -71,6 +71,7 @@ import com.github.andreyasadchy.xtra.ui.tv.upstream.TvPlaybackListener
 import com.github.andreyasadchy.xtra.ui.tv.upstream.TvPlaybackService
 import com.github.andreyasadchy.xtra.ui.tv.upstream.TvPlayerModel
 import com.github.andreyasadchy.xtra.ui.tv.upstream.TvQuality
+import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamAccount
 import com.github.andreyasadchy.xtra.ui.tv.upstream.TvUpstreamPlayer
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.applyTheme

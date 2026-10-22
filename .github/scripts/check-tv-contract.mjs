@@ -66,6 +66,18 @@ for (const m of modelFile.matchAll(/R\.id\.(action_global_\w+)/g)) {
   if (!navIds.has(m[1])) errors.push(`Navigation action ${m[1]} is no longer in the settings navigation graph`)
 }
 
+// 3. the backup rules of the TV build copy the original's cloud-backup part and only add device-transfer
+const block = (file, tag) => {
+  const m = read(join(res, 'xml', file)).match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))
+  return m ? m[1].replace(/\s+/g, ' ').trim() : null
+}
+if (block('data_extraction_rules.xml', 'cloud-backup') !== block('tv_data_extraction_rules.xml', 'cloud-backup')) {
+  errors.push('tv_data_extraction_rules.xml no longer matches the cloud-backup rules of data_extraction_rules.xml: copy the original\'s into it')
+}
+if (!block('tv_data_extraction_rules.xml', 'device-transfer')?.includes('prefs2.xml')) {
+  errors.push('tv_data_extraction_rules.xml must exclude prefs2.xml (the account tokens) from device-transfer')
+}
+
 if (errors.length) {
   for (const e of errors) console.log(`::error::${e}`)
   console.log(`TV contract BROKEN: ${errors.length} problem(s) (${checked} settings keys checked)`)
